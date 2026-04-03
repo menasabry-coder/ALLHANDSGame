@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
-import { getSession, listQuestions, getQuestionResults } from "@/lib/store";
+import {
+  getSession,
+  listQuestions,
+  getQuestionResults,
+  getParticipantCount,
+} from "@/lib/store";
 import type { AIAnalysis } from "@/lib/types";
 
 interface Params {
@@ -39,24 +44,30 @@ export async function POST(_request: Request, { params }: Params) {
     );
   }
 
+  const participantCount = getParticipantCount(sessionId);
+
   // Build results data for every question
   const questionsWithResults = questions.map((q) => {
     const results = getQuestionResults(q.id);
     return {
       id: q.id,
       text: q.text,
+      type: q.type,
       options: q.options,
       order: q.order,
       votes: results?.votes ?? {},
       totalVotes: results?.totalVotes ?? 0,
+      freeTextAnswers: results?.freeTextAnswers ?? [],
     };
   });
 
   // ---- Step 1: Generate embeddings for each question text ----
-  const embeddingTexts = questionsWithResults.map(
-    (q) =>
-      `Question: ${q.text}\nOptions: ${q.options.join(", ")}\nVote distribution: ${q.options.map((opt, i) => `${opt}: ${q.votes[i] ?? 0}`).join(", ")}`
-  );
+  const embeddingTexts = questionsWithResults.map((q) => {
+    if (q.type === "freetext") {
+      return `Question: ${q.text}\nFree-text answers: ${q.freeTextAnswers.join("; ") || "(none)"}`;
+    }
+    return `Question: ${q.text}\nOptions: ${q.options.join(", ")}\nVote distribution: ${q.options.map((opt, i) => `${opt}: ${q.votes[i] ?? 0}`).join(", ")}`;
+  });
 
   let embeddingData: number[][] = [];
   try {
@@ -93,33 +104,58 @@ export async function POST(_request: Request, { params }: Params) {
 
   // ---- Step 3: Chat completion to produce the analysis ----
   const systemPrompt = `You are an expert data analyst for live polling sessions at engineering all-hands meetings.
-You will be given the questions, their answer options, and the voting results.
+You will be given the questions (MCQ and free-text), their answer options/responses, and the voting results.
+Total participants in the session: ${participantCount}
 ${similarities.length > 0 ? `\nThematic analysis from embeddings:\n${similarities.join("\n")}` : ""}
 
-Analyse the data and return a JSON object (no markdown fences) with this exact structure:
+Analyze the data and return a JSON object (no markdown fences) with this exact structure:
 {
-  "summary": "A 2-4 sentence narrative summary of what the votes reveal about the team's sentiments and preferences.",
+  "summary": "A 2-4 sentence narrative summary of what the votes/answers reveal about the team's sentiments and preferences. Include participation percentages where relevant.",
   "questionInsights": [
     {
       "questionId": "<id>",
       "questionText": "<text>",
-      "insight": "A 1-2 sentence insight about the voting pattern for this question.",
-      "recommendedVisualization": "<bar|pie|donut|ranking>"
+      "insight": "A 1-2 sentence insight about the voting/answer pattern for this question. For MCQ, mention what % of participants chose each top option. For free-text, summarize the common themes.",
+      "recommendedVisualization": "<bar|pie|donut|ranking|wordcloud|list>"
     }
   ],
   "overallThemes": ["theme1", "theme2"],
-  "sentiment": "A single sentence describing the overall team sentiment."
+  "sentiment": "A single sentence describing the overall team sentiment.",
+  "infographics": [
+    {
+      "title": "Short metric title",
+      "value": "The key number/stat",
+      "description": "A brief explanation",
+      "icon": "emoji",
+      "color": "<blue|green|purple|yellow|red|pink>"
+    }
+  ]
 }
 
 For recommendedVisualization:
 - Use "pie" when one option dominates (>60%) or there are few options
 - Use "donut" for evenly split results
 - Use "ranking" when options represent an ordered preference
-- Use "bar" as default`;
+- Use "bar" as default for MCQ
+- Use "wordcloud" for free-text questions with many short answers
+- Use "list" for free-text questions with longer answers
+
+For infographics: Generate 3-6 insightful data cards that would make a great infographic dashboard. Examples: participation rate, most popular answer, consensus level, engagement score, etc.`;
 
   const userPrompt = `Session: "${session.name}"
+Total participants: ${participantCount}
 
-${questionsWithResults.map((q) => `Question ${q.order}: "${q.text}"\nOptions & Votes:\n${q.options.map((opt, i) => `  - ${opt}: ${q.votes[i] ?? 0} votes`).join("\n")}\nTotal votes: ${q.totalVotes}`).join("\n\n")}`;
+${questionsWithResults.map((q) => {
+  if (q.type === "freetext") {
+    return `Question ${q.order} (Free Text): "${q.text}"
+Answers (${q.freeTextAnswers.length} of ${participantCount} participants):
+${q.freeTextAnswers.map((a) => `  - "${a}"`).join("\n") || "  (no answers yet)"}`;
+  }
+  return `Question ${q.order} (MCQ): "${q.text}"
+Options & Votes:
+${q.options.map((opt, i) => `  - ${opt}: ${q.votes[i] ?? 0} votes (${participantCount > 0 ? Math.round(((q.votes[i] ?? 0) / participantCount) * 100) : 0}% of participants)`).join("\n")}
+Total votes: ${q.totalVotes}`;
+}).join("\n\n")}`;
 
   try {
     const chatRes = await openai.chat.completions.create({
@@ -129,7 +165,7 @@ ${questionsWithResults.map((q) => `Question ${q.order}: "${q.text}"\nOptions & V
         { role: "user", content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 1500,
+      max_tokens: 3000,
     });
 
     const raw = chatRes.choices[0]?.message?.content?.trim() ?? "";
