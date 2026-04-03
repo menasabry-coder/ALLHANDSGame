@@ -25,6 +25,7 @@ export default function QRCode({ value, size = 200 }: Props) {
         QRCodeLib.toDataURL(value, {
           width: size,
           margin: 2,
+          // White foreground on transparent background — designed for dark UIs
           color: { dark: "#ffffffFF", light: "#00000000" },
         })
       )

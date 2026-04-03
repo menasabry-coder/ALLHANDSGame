@@ -74,12 +74,15 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   // ---- Step 2: Compute pairwise cosine similarities for context ----
+  // Threshold chosen empirically: text-embedding-3-small cosine values above
+  // 0.75 reliably indicate questions that share a common topic.
+  const SIMILARITY_THRESHOLD = 0.75;
   const similarities: string[] = [];
   if (embeddingData.length >= 2) {
     for (let i = 0; i < embeddingData.length; i++) {
       for (let j = i + 1; j < embeddingData.length; j++) {
         const sim = cosineSimilarity(embeddingData[i], embeddingData[j]);
-        if (sim > 0.75) {
+        if (sim > SIMILARITY_THRESHOLD) {
           similarities.push(
             `Questions "${questionsWithResults[i].text}" and "${questionsWithResults[j].text}" are thematically related (similarity: ${sim.toFixed(2)}).`
           );
