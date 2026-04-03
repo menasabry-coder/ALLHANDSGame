@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import QRCode from "@/components/QRCode";
 import type { Session, Question } from "@/lib/types";
 
 export default function AdminPage() {
@@ -260,21 +261,40 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Share links */}
+            {/* Share links & QR Code */}
             <div className="mt-6 bg-gray-800 rounded-xl p-4">
-              <h3 className="font-semibold mb-2">Share Links</h3>
-              <p className="text-sm text-gray-400 mb-1">
-                <span className="font-medium text-gray-300">Player link:</span>{" "}
-                <code className="text-blue-400">
-                  /play/{selectedSession.id}
-                </code>
-              </p>
-              <p className="text-sm text-gray-400">
-                <span className="font-medium text-gray-300">Dashboard:</span>{" "}
-                <code className="text-blue-400">
-                  /dashboard/{selectedSession.id}
-                </code>
-              </p>
+              <h3 className="font-semibold mb-3">Share &amp; Join</h3>
+              <div className="flex flex-col sm:flex-row gap-4 items-center sm:items-start">
+                <QRCode
+                  value={
+                    typeof window !== "undefined"
+                      ? `${window.location.origin}/play/${selectedSession.id}`
+                      : `/play/${selectedSession.id}`
+                  }
+                  size={140}
+                />
+                <div className="flex-1 text-sm space-y-2">
+                  <p className="text-gray-400">
+                    <span className="font-medium text-gray-300">
+                      Player link:
+                    </span>{" "}
+                    <code className="text-blue-400">
+                      /play/{selectedSession.id}
+                    </code>
+                  </p>
+                  <p className="text-gray-400">
+                    <span className="font-medium text-gray-300">
+                      Dashboard:
+                    </span>{" "}
+                    <code className="text-blue-400">
+                      /dashboard/{selectedSession.id}
+                    </code>
+                  </p>
+                  <p className="text-gray-500 text-xs mt-2">
+                    Scan the QR code to join on a mobile device
+                  </p>
+                </div>
+              </div>
             </div>
           </section>
         )}

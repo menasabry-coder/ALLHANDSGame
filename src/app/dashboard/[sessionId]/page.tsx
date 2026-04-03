@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import ResultsChart from "@/components/ResultsChart";
+import QRCode from "@/components/QRCode";
+import AIInsights from "@/components/AIInsights";
 import type { Session, QuestionWithResults } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -81,6 +83,31 @@ export default function DashboardPage() {
         </span>
       </header>
 
+      {/* Join QR Code */}
+      <section className="max-w-2xl mx-auto mb-8">
+        <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700 flex flex-col sm:flex-row items-center gap-6">
+          <QRCode
+            value={
+              typeof window !== "undefined"
+                ? `${window.location.origin}/play/${sessionId}`
+                : `/play/${sessionId}`
+            }
+            size={160}
+          />
+          <div className="text-center sm:text-left">
+            <h2 className="text-lg font-semibold mb-1">Join this session</h2>
+            <p className="text-gray-400 text-sm mb-2">
+              Scan the QR code or share the link below
+            </p>
+            <code className="text-blue-400 text-xs break-all">
+              {typeof window !== "undefined"
+                ? `${window.location.origin}/play/${sessionId}`
+                : `/play/${sessionId}`}
+            </code>
+          </div>
+        </div>
+      </section>
+
       {/* Active question — hero card */}
       {activeQuestion && (
         <section className="max-w-2xl mx-auto mb-12">
@@ -131,6 +158,9 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+
+      {/* AI Analysis */}
+      {questions.length > 0 && <AIInsights sessionId={sessionId} />}
     </main>
   );
 }

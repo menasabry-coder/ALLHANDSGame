@@ -30,3 +30,16 @@ export interface QuestionWithResults extends Question {
   votes: Record<number, number>; // optionIndex → count
   totalVotes: number;
 }
+
+/** AI-generated analysis of a session's questions and answers */
+export interface AIAnalysis {
+  summary: string;
+  questionInsights: {
+    questionId: string;
+    questionText: string;
+    insight: string;
+    recommendedVisualization: "bar" | "pie" | "donut" | "ranking";
+  }[];
+  overallThemes: string[];
+  sentiment: string;
+}
