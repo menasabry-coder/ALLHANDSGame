@@ -18,6 +18,33 @@ const BAR_COLORS = [
 ];
 
 export default function ResultsChart({ question }: Props) {
+  // Free-text questions: show list of answers
+  if (question.type === "freetext") {
+    return (
+      <div className="space-y-2">
+        {question.freeTextAnswers.length === 0 ? (
+          <p className="text-gray-500 text-sm">No answers yet.</p>
+        ) : (
+          <>
+            {question.freeTextAnswers.map((answer, idx) => (
+              <div
+                key={idx}
+                className="bg-gray-700/50 rounded-lg px-4 py-2 text-sm text-gray-300"
+              >
+                &ldquo;{answer}&rdquo;
+              </div>
+            ))}
+            <p className="text-center text-gray-400 text-xs pt-1">
+              {question.freeTextAnswers.length} answer
+              {question.freeTextAnswers.length !== 1 && "s"}
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // MCQ questions: bar chart
   const maxVotes = Math.max(...Object.values(question.votes), 1);
 
   return (

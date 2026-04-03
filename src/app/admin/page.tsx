@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import QRCode from "@/components/QRCode";
-import type { Session, Question } from "@/lib/types";
+import type { Session, Question, QuestionType } from "@/lib/types";
 
 export default function AdminPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -14,6 +14,7 @@ export default function AdminPage() {
 
   // New question form
   const [qText, setQText] = useState("");
+  const [qType, setQType] = useState<QuestionType>("mcq");
   const [qOptions, setQOptions] = useState(["", ""]);
 
   // ------- Fetch helpers -------
@@ -23,7 +24,7 @@ export default function AdminPage() {
   }, []);
 
   const fetchQuestions = useCallback(async (sid: string) => {
-    const res = await fetch(`/api/sessions/${sid}/questions`);
+    const res = await fetch(`/api/sessions/${sid}/questions?all=true`);
     const data = await res.json();
     setQuestions(data.questions ?? []);
     if (data.session) setSelectedSession(data.session);
@@ -74,17 +75,22 @@ export default function AdminPage() {
   };
 
   const addQuestion = async () => {
-    if (!selectedSession || !qText.trim() || qOptions.some((o) => !o.trim()))
-      return;
+    if (!selectedSession || !qText.trim()) return;
+    if (qType === "mcq" && qOptions.some((o) => !o.trim())) return;
+
     await fetch(`/api/sessions/${selectedSession.id}/questions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text: qText.trim(),
-        options: qOptions.map((o) => o.trim()),
+        type: qType,
+        ...(qType === "mcq"
+          ? { options: qOptions.map((o) => o.trim()) }
+          : {}),
       }),
     });
     setQText("");
+    setQType("mcq");
     setQOptions(["", ""]);
     fetchQuestions(selectedSession.id);
   };
@@ -99,11 +105,21 @@ export default function AdminPage() {
     fetchQuestions(selectedSession.id);
   };
 
+  const publishAction = async (mode: "all" | "next", questionId?: string) => {
+    if (!selectedSession) return;
+    await fetch(`/api/sessions/${selectedSession.id}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, questionId }),
+    });
+    fetchQuestions(selectedSession.id);
+  };
+
+  const unpublishedCount = questions.filter((q) => !q.published).length;
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-6">
-      <h1 className="text-3xl font-bold mb-6">
-        🛠 Admin Panel
-      </h1>
+      <h1 className="text-3xl font-bold mb-6">🛠 Admin Panel</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Column 1: Sessions */}
@@ -140,7 +156,13 @@ export default function AdminPage() {
                 }`}
               >
                 <p className="font-medium">{s.name}</p>
-                <p className="text-xs text-gray-500 mt-1 font-mono">{s.id}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-xs text-gray-500 font-mono">{s.id}</p>
+                  <span className="text-xs text-gray-500">
+                    · {s.participantCount} participant
+                    {s.participantCount !== 1 && "s"}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
@@ -153,18 +175,42 @@ export default function AdminPage() {
               <h2 className="text-xl font-semibold">
                 Questions — {selectedSession.name}
               </h2>
-              <span
-                className={`text-xs px-2 py-1 rounded-full ${
-                  selectedSession.status === "active"
-                    ? "bg-green-900 text-green-300"
-                    : selectedSession.status === "finished"
-                      ? "bg-gray-700 text-gray-400"
-                      : "bg-yellow-900 text-yellow-300"
-                }`}
-              >
-                {selectedSession.status}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400">
+                  👥 {selectedSession.participantCount} participant
+                  {selectedSession.participantCount !== 1 && "s"}
+                </span>
+                <span
+                  className={`text-xs px-2 py-1 rounded-full ${
+                    selectedSession.status === "active"
+                      ? "bg-green-900 text-green-300"
+                      : selectedSession.status === "finished"
+                        ? "bg-gray-700 text-gray-400"
+                        : "bg-yellow-900 text-yellow-300"
+                  }`}
+                >
+                  {selectedSession.status}
+                </span>
+              </div>
             </div>
+
+            {/* Publish controls */}
+            {unpublishedCount > 0 && (
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => publishAction("next")}
+                  className="bg-indigo-600 hover:bg-indigo-500 rounded-lg px-4 py-2 text-sm font-semibold transition"
+                >
+                  📤 Publish Next Question
+                </button>
+                <button
+                  onClick={() => publishAction("all")}
+                  className="bg-indigo-800 hover:bg-indigo-700 rounded-lg px-4 py-2 text-sm font-semibold transition"
+                >
+                  📤 Publish All ({unpublishedCount})
+                </button>
+              </div>
+            )}
 
             {/* Question list */}
             <ul className="space-y-2 mb-6">
@@ -174,28 +220,60 @@ export default function AdminPage() {
                   className={`rounded-lg px-4 py-3 ${
                     selectedSession.activeQuestionId === q.id
                       ? "bg-green-900/30 border border-green-600"
-                      : "bg-gray-800"
+                      : q.published
+                        ? "bg-gray-800"
+                        : "bg-gray-800/50 border border-dashed border-gray-600"
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <p className="font-medium">
-                      Q{q.order}: {q.text}
-                    </p>
-                    <button
-                      onClick={() => activateQuestion(q.id)}
-                      className={`text-xs px-3 py-1 rounded-full font-semibold transition ${
-                        selectedSession.activeQuestionId === q.id
-                          ? "bg-green-600 text-white"
-                          : "bg-gray-700 hover:bg-blue-600 text-gray-300 hover:text-white"
-                      }`}
-                    >
-                      {selectedSession.activeQuestionId === q.id
-                        ? "● LIVE"
-                        : "Activate"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs px-1.5 py-0.5 rounded ${
+                          q.type === "freetext"
+                            ? "bg-purple-900 text-purple-300"
+                            : "bg-blue-900 text-blue-300"
+                        }`}
+                      >
+                        {q.type === "freetext" ? "FREE TEXT" : "MCQ"}
+                      </span>
+                      <p className="font-medium">
+                        Q{q.order}: {q.text}
+                      </p>
+                      {!q.published && (
+                        <span className="text-xs text-yellow-500">
+                          (unpublished)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!q.published && (
+                        <button
+                          onClick={() =>
+                            publishAction("next")
+                          }
+                          className="text-xs px-2 py-1 rounded-full bg-indigo-700 hover:bg-indigo-600 text-white transition"
+                        >
+                          Publish
+                        </button>
+                      )}
+                      <button
+                        onClick={() => activateQuestion(q.id)}
+                        className={`text-xs px-3 py-1 rounded-full font-semibold transition ${
+                          selectedSession.activeQuestionId === q.id
+                            ? "bg-green-600 text-white"
+                            : "bg-gray-700 hover:bg-blue-600 text-gray-300 hover:text-white"
+                        }`}
+                      >
+                        {selectedSession.activeQuestionId === q.id
+                          ? "● LIVE"
+                          : "Activate"}
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Options: {q.options.join(" | ")}
+                    {q.type === "freetext"
+                      ? "Open-ended text answer"
+                      : `Options: ${q.options.join(" | ")}`}
                   </p>
                 </li>
               ))}
@@ -214,44 +292,81 @@ export default function AdminPage() {
             {/* Add question */}
             <div className="bg-gray-800 rounded-xl p-4">
               <h3 className="font-semibold mb-3">Add Question</h3>
+
+              {/* Question type toggle */}
+              <div className="flex gap-2 mb-3">
+                <button
+                  onClick={() => setQType("mcq")}
+                  className={`text-sm px-3 py-1 rounded-full font-semibold transition ${
+                    qType === "mcq"
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-700 text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Multiple Choice
+                </button>
+                <button
+                  onClick={() => setQType("freetext")}
+                  className={`text-sm px-3 py-1 rounded-full font-semibold transition ${
+                    qType === "freetext"
+                      ? "bg-purple-600 text-white"
+                      : "bg-gray-700 text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Free Text
+                </button>
+              </div>
+
               <input
                 value={qText}
                 onChange={(e) => setQText(e.target.value)}
                 placeholder="Question text"
                 className="w-full rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-500"
               />
-              {qOptions.map((opt, idx) => (
-                <div key={idx} className="flex gap-2 mb-2">
-                  <input
-                    value={opt}
-                    onChange={(e) => {
-                      const copy = [...qOptions];
-                      copy[idx] = e.target.value;
-                      setQOptions(copy);
-                    }}
-                    placeholder={`Option ${idx + 1}`}
-                    className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                  />
-                  {idx >= 2 && (
-                    <button
-                      onClick={() =>
-                        setQOptions(qOptions.filter((_, i) => i !== idx))
-                      }
-                      className="text-red-400 hover:text-red-300 text-sm"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              ))}
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={() => setQOptions([...qOptions, ""])}
-                  className="text-sm text-blue-400 hover:text-blue-300"
-                >
-                  + Add option
-                </button>
-                <div className="flex-1" />
+
+              {/* MCQ options */}
+              {qType === "mcq" && (
+                <>
+                  {qOptions.map((opt, idx) => (
+                    <div key={idx} className="flex gap-2 mb-2">
+                      <input
+                        value={opt}
+                        onChange={(e) => {
+                          const copy = [...qOptions];
+                          copy[idx] = e.target.value;
+                          setQOptions(copy);
+                        }}
+                        placeholder={`Option ${idx + 1}`}
+                        className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                      />
+                      {idx >= 2 && (
+                        <button
+                          onClick={() =>
+                            setQOptions(qOptions.filter((_, i) => i !== idx))
+                          }
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setQOptions([...qOptions, ""])}
+                    className="text-sm text-blue-400 hover:text-blue-300 mb-2"
+                  >
+                    + Add option
+                  </button>
+                </>
+              )}
+
+              {qType === "freetext" && (
+                <p className="text-xs text-gray-500 mb-2">
+                  Participants will type their own answer.
+                </p>
+              )}
+
+              <div className="flex justify-end mt-2">
                 <button
                   onClick={addQuestion}
                   className="bg-green-600 hover:bg-green-500 rounded-lg px-4 py-2 text-sm font-semibold transition"

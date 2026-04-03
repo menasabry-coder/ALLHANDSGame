@@ -1,11 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import type { AIAnalysis } from "@/lib/types";
+import type { AIAnalysis, InfographicCard } from "@/lib/types";
 
 interface Props {
   sessionId: string;
 }
+
+const COLOR_MAP: Record<InfographicCard["color"], string> = {
+  blue: "from-blue-900/60 to-blue-800/30 border-blue-700/50",
+  green: "from-green-900/60 to-green-800/30 border-green-700/50",
+  purple: "from-purple-900/60 to-purple-800/30 border-purple-700/50",
+  yellow: "from-yellow-900/60 to-yellow-800/30 border-yellow-700/50",
+  red: "from-red-900/60 to-red-800/30 border-red-700/50",
+  pink: "from-pink-900/60 to-pink-800/30 border-pink-700/50",
+};
 
 export default function AIInsights({ sessionId }: Props) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
@@ -49,7 +58,7 @@ export default function AIInsights({ sessionId }: Props) {
           <div className="text-center py-4">
             <p className="text-gray-400 mb-4 text-sm">
               Use OpenAI to analyze the questions, voting patterns, and generate
-              insights about this session.
+              insights &amp; infographics about this session.
             </p>
             <button
               onClick={runAnalysis}
@@ -83,6 +92,34 @@ export default function AIInsights({ sessionId }: Props) {
 
         {analysis && (
           <div className="space-y-6">
+            {/* Infographic Cards */}
+            {analysis.infographics && analysis.infographics.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-purple-400 uppercase tracking-wide mb-3">
+                  📊 Infographic Dashboard
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {analysis.infographics.map((card, i) => (
+                    <div
+                      key={i}
+                      className={`bg-gradient-to-br ${COLOR_MAP[card.color] ?? COLOR_MAP.blue} rounded-xl p-4 border`}
+                    >
+                      <div className="text-2xl mb-1">{card.icon}</div>
+                      <p className="text-2xl font-bold text-white">
+                        {card.value}
+                      </p>
+                      <p className="text-sm font-semibold text-gray-200 mt-1">
+                        {card.title}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {card.description}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Summary */}
             <div>
               <h3 className="text-sm font-semibold text-purple-400 uppercase tracking-wide mb-2">
