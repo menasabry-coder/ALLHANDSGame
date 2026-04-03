@@ -26,8 +26,12 @@ export default function AIInsights({ sessionId }: Props) {
       }
       const data: AIAnalysis = await res.json();
       setAnalysis(data);
-    } catch {
-      setError("Could not connect to analysis service");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Could not connect to analysis service: ${err.message}`
+          : "Could not connect to analysis service"
+      );
     } finally {
       setLoading(false);
     }

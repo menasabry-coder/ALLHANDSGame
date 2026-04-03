@@ -16,22 +16,39 @@ interface Props {
  */
 export default function QRCode({ value, size = 200 }: Props) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    import("qrcode").then((QRCodeLib) => {
-      QRCodeLib.toDataURL(value, {
-        width: size,
-        margin: 2,
-        color: { dark: "#ffffffFF", light: "#00000000" },
-      }).then((url: string) => {
+    import("qrcode")
+      .then((QRCodeLib) =>
+        QRCodeLib.toDataURL(value, {
+          width: size,
+          margin: 2,
+          color: { dark: "#ffffffFF", light: "#00000000" },
+        })
+      )
+      .then((url: string) => {
         if (!cancelled) setDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
       });
-    });
     return () => {
       cancelled = true;
     };
   }, [value, size]);
+
+  if (error) {
+    return (
+      <div
+        className="flex items-center justify-center bg-gray-700 rounded-lg text-gray-400 text-xs"
+        style={{ width: size, height: size }}
+      >
+        QR unavailable
+      </div>
+    );
+  }
 
   if (!dataUrl) {
     return (

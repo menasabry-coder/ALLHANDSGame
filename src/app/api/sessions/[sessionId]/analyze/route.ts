@@ -10,7 +10,7 @@ interface Params {
 /**
  * POST /api/sessions/[sessionId]/analyze
  *
- * Uses the OpenAI API (chat completions + embeddings) to analyse the session's
+ * Uses the OpenAI API (chat completions + embeddings) to analyze the session's
  * questions and vote results, then returns a structured AI analysis.
  */
 export async function POST(_request: Request, { params }: Params) {
@@ -34,7 +34,7 @@ export async function POST(_request: Request, { params }: Params) {
   const questions = listQuestions(sessionId);
   if (questions.length === 0) {
     return NextResponse.json(
-      { error: "No questions in this session to analyse" },
+      { error: "No questions in this session to analyze" },
       { status: 400 }
     );
   }
@@ -65,8 +65,12 @@ export async function POST(_request: Request, { params }: Params) {
       input: embeddingTexts,
     });
     embeddingData = embeddingRes.data.map((d) => d.embedding);
-  } catch {
-    // Embeddings are non-critical — continue without them
+  } catch (embeddingErr) {
+    // Embeddings are non-critical — log and continue without them
+    console.warn(
+      "OpenAI embeddings failed (continuing without thematic analysis):",
+      embeddingErr instanceof Error ? embeddingErr.message : embeddingErr
+    );
   }
 
   // ---- Step 2: Compute pairwise cosine similarities for context ----
