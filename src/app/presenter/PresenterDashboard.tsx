@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MetricCard from "@/components/MetricCard";
 import Panel from "@/components/Panel";
 import QRCode from "@/components/QRCode";
-import { GAME_NAME, GAME_SUBTITLE } from "@/config/gameConfig";
+import { GAME_NAME, GAME_SUBTITLE, ROUNDS } from "@/config/gameConfig";
 import type { GameEvent, GameSessionDto } from "@/types/game";
 
 // ---------------------------------------------------------------------------
@@ -18,6 +18,21 @@ interface ParticipantStats {
   byUsage: Record<string, number>;
 }
 
+interface LiveQuestion {
+  id: string;
+  title: string;
+  prompt: string;
+  questionType: string;
+  roundId: string;
+  responseCount: number;
+  tally: Record<string, number>;
+  allocationTotals: Record<string, number>;
+  freeTexts: string[];
+  marketScore?: number;
+  riskScores?: Record<string, number>;
+  options: Array<{ id: string; label: string; category: string | null }>;
+}
+
 // ---------------------------------------------------------------------------
 // Simple horizontal bar chart — no external library
 // ---------------------------------------------------------------------------
@@ -25,9 +40,11 @@ interface ParticipantStats {
 function DistributionBars({
   data,
   colorClass = "bg-blue-500",
+  showValue = true,
 }: {
   data: Record<string, number>;
   colorClass?: string;
+  showValue?: boolean;
 }) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
   const max = Math.max(1, ...entries.map(([, v]) => v));
@@ -42,7 +59,7 @@ function DistributionBars({
         <div key={label}>
           <div className="flex justify-between text-xs mb-0.5">
             <span className="text-gray-300 truncate max-w-[70%]">{label}</span>
-            <span className="text-gray-500">{count}</span>
+            {showValue && <span className="text-gray-500">{count}</span>}
           </div>
           <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
             <div
@@ -53,6 +70,107 @@ function DistributionBars({
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live question results panel
+// ---------------------------------------------------------------------------
+
+function LiveQuestionResults({ question }: { question: LiveQuestion }) {
+  const roundLabel =
+    question.roundId === "stock_market"
+      ? "🏦 Stock Market"
+      : question.roundId === "risk_casino"
+      ? "🎰 Risk Casino"
+      : question.roundId === "mythbusters"
+      ? "💡 MythBusters"
+      : question.roundId;
+
+  const rows = question.options.filter((o) => o.category !== "column");
+  const optionById = Object.fromEntries(question.options.map((o) => [o.id, o]));
+
+  return (
+    <Panel
+      title={question.title}
+      subtitle={`${roundLabel} · ${question.responseCount} response${question.responseCount !== 1 ? "s" : ""} · ${question.questionType}`}
+    >
+      {(question.questionType === "single_choice" ||
+        question.questionType === "multi_select") && (
+        <DistributionBars
+          data={Object.fromEntries(
+            Object.entries(question.tally).map(([id, n]) => [
+              optionById[id]?.label ?? id,
+              n,
+            ])
+          )}
+          colorClass="bg-blue-500"
+        />
+      )}
+
+      {question.questionType === "allocation" && (
+        <div className="space-y-2">
+          {rows
+            .map((opt) => ({
+              label: opt.label,
+              total: question.allocationTotals[opt.id] ?? 0,
+              score: question.riskScores?.[opt.id],
+            }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 10)
+            .map(({ label, total, score }) => {
+              const max = Math.max(
+                1,
+                ...rows.map((o) => question.allocationTotals[o.id] ?? 0)
+              );
+              return (
+                <div key={label}>
+                  <div className="flex justify-between text-xs mb-0.5">
+                    <span className="text-gray-300 truncate max-w-[65%]">{label}</span>
+                    <span className="text-gray-400">
+                      {total} coins{score !== undefined ? ` · score ${score.toFixed(0)}` : ""}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-teal-500 transition-all duration-500"
+                      style={{ width: `${(total / max) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          {question.marketScore !== undefined && (
+            <p className="text-xs text-teal-400 font-semibold mt-2">
+              💰 Total coins invested: {question.marketScore}
+            </p>
+          )}
+        </div>
+      )}
+
+      {question.questionType === "free_text" && (
+        <div className="space-y-2 max-h-40 overflow-y-auto">
+          {question.freeTexts.length === 0 ? (
+            <p className="text-xs text-gray-600 italic">No responses yet.</p>
+          ) : (
+            question.freeTexts.map((t, i) => (
+              <div
+                key={i}
+                className="text-xs text-gray-300 bg-gray-900/60 rounded-lg px-3 py-2 italic"
+              >
+                &ldquo;{t}&rdquo;
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {question.questionType === "matrix" && (
+        <p className="text-xs text-gray-500 italic">
+          Matrix responses collected. Full heatmap available in Phase 7 analysis.
+        </p>
+      )}
+    </Panel>
   );
 }
 
@@ -74,6 +192,8 @@ export default function PresenterDashboard({
   });
   const [joinUrl, setJoinUrl] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [activeRoundTab, setActiveRoundTab] = useState("stock_market");
+  const [liveQuestion, setLiveQuestion] = useState<LiveQuestion | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   // Compute join URL once we have the session code
@@ -106,11 +226,36 @@ export default function PresenterDashboard({
     }
   }, [sessionId]);
 
+  // Fetch live results for active question
+  const fetchLiveQuestion = useCallback(
+    async (questionId: string | null | undefined) => {
+      if (!questionId || !sessionId) {
+        setLiveQuestion(null);
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/round-questions`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const found = (data.questions as LiveQuestion[]).find(
+            (q) => q.id === questionId
+          );
+          setLiveQuestion(found ?? null);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [sessionId]
+  );
+
   useEffect(() => {
     fetchStats();
   }, [fetchStats]);
 
-  // SSE subscription — refresh stats on participant events
+  // SSE subscription
   useEffect(() => {
     if (!sessionId) return;
 
@@ -138,6 +283,33 @@ export default function PresenterDashboard({
             );
           }
         }
+
+        if (event.type === "question:activated") {
+          const p = event.payload as { questionId: string | null };
+          setSession((prev) =>
+            prev ? { ...prev, activeQuestionId: p.questionId } : prev
+          );
+          fetchLiveQuestion(p.questionId);
+        }
+
+        if (event.type === "response:submitted") {
+          // Refresh live results when a new response comes in
+          setSession((prev) => {
+            if (prev?.activeQuestionId) {
+              fetchLiveQuestion(prev.activeQuestionId);
+            }
+            return prev;
+          });
+        }
+
+        if (event.type === "question:locked") {
+          setSession((prev) => {
+            if (prev?.activeQuestionId) {
+              fetchLiveQuestion(prev.activeQuestionId);
+            }
+            return prev;
+          });
+        }
       } catch {
         // ignore
       }
@@ -146,7 +318,16 @@ export default function PresenterDashboard({
     return () => {
       es.close();
     };
-  }, [sessionId, fetchStats]);
+  }, [sessionId, fetchStats, fetchLiveQuestion]);
+
+  // When session loads, load live question if one is active
+  useEffect(() => {
+    if (session?.activeQuestionId) {
+      fetchLiveQuestion(session.activeQuestionId);
+    } else {
+      setLiveQuestion(null);
+    }
+  }, [session?.activeQuestionId, fetchLiveQuestion]);
 
   // ---------------------------------------------------------------------------
   // Render: no session selected
@@ -180,6 +361,8 @@ export default function PresenterDashboard({
   // ---------------------------------------------------------------------------
   // Render: full dashboard
   // ---------------------------------------------------------------------------
+
+  const currentRound = ROUNDS.find((r) => r.id === activeRoundTab);
 
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 p-8 gap-8">
@@ -223,7 +406,7 @@ export default function PresenterDashboard({
         />
         <MetricCard
           label="Active Round"
-          value={session?.activeRoundId ?? "—"}
+          value={currentRound?.name ?? session?.activeRoundId ?? "—"}
           description="Current game round"
           icon="🎯"
           accent="blue"
@@ -237,7 +420,42 @@ export default function PresenterDashboard({
         />
       </div>
 
-      {/* Distribution panels */}
+      {/* Round tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {ROUNDS.map((r) => (
+          <button
+            key={r.id}
+            onClick={() => setActiveRoundTab(r.id)}
+            className={[
+              "px-4 py-1.5 rounded-lg text-xs font-semibold border transition",
+              activeRoundTab === r.id
+                ? "border-blue-500 bg-blue-600/20 text-white"
+                : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-white",
+            ].join(" ")}
+          >
+            {r.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Live question results — shown when a question is active */}
+      {liveQuestion && (
+        <LiveQuestionResults question={liveQuestion} />
+      )}
+
+      {!liveQuestion && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900/20 px-6 py-4 text-center">
+          <p className="text-gray-600 text-sm italic">
+            No active question. Activate a question from the{" "}
+            <a href="/admin" className="text-blue-400 underline">
+              Admin panel
+            </a>{" "}
+            to see live results here.
+          </p>
+        </div>
+      )}
+
+      {/* Participant distribution panels */}
       <div className="grid grid-cols-3 gap-6">
         <Panel title="Engineering Area" subtitle="Distribution of participants">
           <DistributionBars data={stats.byArea} colorClass="bg-teal-500" />
