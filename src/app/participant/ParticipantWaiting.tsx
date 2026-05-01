@@ -63,12 +63,20 @@ function MultiSelectInput({
   values: string[];
   onChange: (ids: string[]) => void;
 }) {
+  // If this question has myth vote/confidence options, delegate to MythVoteInput
+  const hasVoteGroup = question.options.some((o) => o.category === "vote");
+  if (hasVoteGroup) {
+    return <MythVoteInput question={question} values={values} onChange={onChange} />;
+  }
+
   // Detect max from category field  ("max3", "max5", etc.)
   const firstCat = question.options[0]?.category ?? "";
   const maxMatch = firstCat.match(/^max(\d+)$/);
   const max = maxMatch ? parseInt(maxMatch[1], 10) : question.options.length;
 
-  const rows = question.options.filter((o) => !o.category?.startsWith("column"));
+  const rows = question.options.filter(
+    (o) => !o.category?.startsWith("column") && o.category !== "myth_meta"
+  );
 
   function toggle(id: string) {
     if (values.includes(id)) {
@@ -109,6 +117,91 @@ function MultiSelectInput({
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Myth vote input — renders two separate radio groups:
+ *   1. Vote: True / False / Depends / I don't know
+ *   2. Confidence: Very confident / Somewhat confident / Not confident
+ * Stores both selections as `selectedOptionIds`.
+ */
+function MythVoteInput({
+  question,
+  values,
+  onChange,
+}: {
+  question: QuestionDto;
+  values: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const voteOpts = question.options.filter((o) => o.category === "vote");
+  const confOpts = question.options.filter((o) => o.category === "confidence");
+
+  const selectedVote = values.find((id) => voteOpts.some((o) => o.id === id)) ?? "";
+  const selectedConf = values.find((id) => confOpts.some((o) => o.id === id)) ?? "";
+
+  function pickVote(id: string) {
+    const others = values.filter((v) => !voteOpts.some((o) => o.id === v));
+    onChange([...others, id]);
+  }
+  function pickConf(id: string) {
+    const others = values.filter((v) => !confOpts.some((o) => o.id === v));
+    onChange([...others, id]);
+  }
+
+  function radioBtn(
+    opt: { id: string; label: string },
+    selected: boolean,
+    pick: (id: string) => void,
+    accent: string
+  ) {
+    return (
+      <button
+        key={opt.id}
+        type="button"
+        onClick={() => pick(opt.id)}
+        className={[
+          "w-full text-left rounded-xl px-4 py-2.5 text-sm font-medium border transition",
+          selected
+            ? `border-${accent}-500 bg-${accent}-600/20 text-white`
+            : "border-gray-700 bg-gray-900/60 text-gray-300 hover:border-gray-500 hover:text-white",
+        ].join(" ")}
+      >
+        <span className="inline-block w-5 text-center mr-2">
+          {selected ? "●" : "○"}
+        </span>
+        {opt.label}
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Vote group */}
+      <div>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          Your verdict
+        </p>
+        <div className="space-y-2">
+          {voteOpts.map((opt) =>
+            radioBtn(opt, selectedVote === opt.id, pickVote, "blue")
+          )}
+        </div>
+      </div>
+
+      {/* Confidence group */}
+      <div>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+          How confident are you?
+        </p>
+        <div className="space-y-2">
+          {confOpts.map((opt) =>
+            radioBtn(opt, selectedConf === opt.id, pickConf, "purple")
+          )}
+        </div>
       </div>
     </div>
   );
@@ -257,7 +350,18 @@ function validatePayload(q: QuestionDto, payload: ResponsePayload): string | nul
     if (!payload.selectedOptionIds?.length) return "Please select an option.";
   }
   if (q.questionType === "multi_select") {
-    if (!payload.selectedOptionIds?.length) return "Please select at least one option.";
+    const isMythVote = q.options.some((o) => o.category === "vote");
+    if (isMythVote) {
+      const voteOpts = q.options.filter((o) => o.category === "vote");
+      const confOpts = q.options.filter((o) => o.category === "confidence");
+      const ids = payload.selectedOptionIds ?? [];
+      const hasVote = ids.some((id) => voteOpts.some((o) => o.id === id));
+      const hasConf = ids.some((id) => confOpts.some((o) => o.id === id));
+      if (!hasVote) return "Please select your verdict (True / False / Depends / I don't know).";
+      if (!hasConf) return "Please select your confidence level.";
+    } else {
+      if (!payload.selectedOptionIds?.length) return "Please select at least one option.";
+    }
   }
   if (q.questionType === "allocation") {
     const total = Object.values(payload.allocation ?? {}).reduce((s, n) => s + n, 0);

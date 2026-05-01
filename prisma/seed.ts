@@ -455,52 +455,353 @@ async function main() {
 
   // -------------------------------------------------------------------------
   // Round 3: AI MythBusters  (roundId = "mythbusters")
+  //
+  // Each myth generates TWO questions:
+  //   mb_q{n}_vote  — multi_select with vote (category="vote") + confidence
+  //                   (category="confidence") option groups, plus myth_meta
+  //                   options storing the recommended answer and reality text.
+  //   mb_q{n}_fu    — single_choice follow-up question
+  //
+  // The participant UI detects the "vote" / "confidence" categories and renders
+  // two separate radio groups.  Options with category="myth_meta" are hidden
+  // from participants and read by the presenter dashboard for the reveal card.
   // -------------------------------------------------------------------------
-  const mythBustersQuestions: QuestionSeed[] = [
+
+  // Standard vote + confidence options (reused with unique IDs per myth)
+  function mbVoteOpts(mythNum: string): OptionSeed[] {
+    return [
+      { id: `mb${mythNum}_v1`, label: "True",         category: "vote",       order: 1 },
+      { id: `mb${mythNum}_v2`, label: "False",        category: "vote",       order: 2 },
+      { id: `mb${mythNum}_v3`, label: "Depends",      category: "vote",       order: 3 },
+      { id: `mb${mythNum}_v4`, label: "I don't know", category: "vote",       order: 4 },
+      { id: `mb${mythNum}_c1`, label: "Very confident",      category: "confidence", order: 5 },
+      { id: `mb${mythNum}_c2`, label: "Somewhat confident",  category: "confidence", order: 6 },
+      { id: `mb${mythNum}_c3`, label: "Not confident",       category: "confidence", order: 7 },
+    ];
+  }
+
+  interface MythSeed {
+    num: string;
+    title: string;
+    statement: string;
+    recommendedAnswer: string;
+    reality: string;
+    followUpQuestion: string;
+    followUpOptions: string[];
+  }
+
+  const MYTHS: MythSeed[] = [
     {
-      id: "mb_q1",
-      roundId: "mythbusters",
-      order: 1,
-      title: "The 'Black Box' Myth",
-      prompt:
-        '"AI is a black box — we can never know why it made a decision." Do you agree?',
-      questionType: "single_choice",
-      options: [
-        { id: "mb_q1_o1", label: "Strongly agree — it will always be opaque", order: 1 },
-        { id: "mb_q1_o2", label: "Partially agree — some use cases can be explained", order: 2 },
-        { id: "mb_q1_o3", label: "Disagree — XAI tools already exist", order: 3 },
-        { id: "mb_q1_o4", label: "Strongly disagree — transparency is improving fast", order: 4 },
+      num: "01",
+      title: "MB1 — Compiling Means Production Ready",
+      statement: "AI-generated code is production-ready if it compiles.",
+      recommendedAnswer: "False",
+      reality: "Compiling only proves syntax and basic linkage. It does not prove correctness, safety, timing behavior, boundary handling, cybersecurity, traceability, maintainability, or requirement compliance.",
+      followUpQuestion: "What is the minimum gate for AI-generated code?",
+      followUpOptions: [
+        "Compile only",
+        "Compile + unit tests",
+        "Unit tests + code review",
+        "Requirement traceability + tests + review",
+        "Depends on ASIL/security/process criticality",
       ],
     },
     {
-      id: "mb_q2",
-      roundId: "mythbusters",
-      order: 2,
-      title: "The 'Job Replacement' Myth",
-      prompt:
-        '"AI will replace automotive software engineers within 10 years." What is your view?',
-      questionType: "single_choice",
-      options: [
-        { id: "mb_q2_o1", label: "Mostly true — significant displacement ahead", order: 1 },
-        { id: "mb_q2_o2", label: "Partially true — some roles will change significantly", order: 2 },
-        { id: "mb_q2_o3", label: "Unlikely — engineers using AI will outperform those who don't", order: 3 },
-        { id: "mb_q2_o4", label: "False — engineering creativity cannot be automated", order: 4 },
+      num: "02",
+      title: "MB2 — AI Is Mainly for Production Code",
+      statement: "AI is most useful for generating production code.",
+      recommendedAnswer: "Depends, but usually not the first adoption area.",
+      reality: "For automotive teams, lower-risk high-value starting areas are often tests, documentation, log analysis, code explanation, CI failure analysis, and review assistance. Direct production code generation needs stronger gates.",
+      followUpQuestion: "Where should we start?",
+      followUpOptions: [
+        "Production code",
+        "Unit tests",
+        "Documentation",
+        "CI/debugging",
+        "Requirements clarification",
+        "Code review",
+        "Traceability",
       ],
     },
     {
-      id: "mb_q3",
-      roundId: "mythbusters",
-      order: 3,
-      title: "Open Reflection",
-      prompt:
-        "What is one AI capability you wish existed today that would most help your engineering work?",
-      questionType: "free_text",
-      options: [],
+      num: "03",
+      title: "MB3 — AI Can Replace Senior Reviewers",
+      statement: "AI can replace senior code reviewers.",
+      recommendedAnswer: "False",
+      reality: "AI can increase review coverage, suggest issues, and improve consistency, but senior reviewers understand context, architecture, safety implications, product history, and trade-offs.",
+      followUpQuestion: "What role should AI have in review?",
+      followUpOptions: [
+        "No role",
+        "Pre-review assistant",
+        "Second reviewer",
+        "Mandatory checklist reviewer",
+        "Final approver",
+      ],
+    },
+    {
+      num: "04",
+      title: "MB4 — AI Unit Tests Solve Quality",
+      statement: "If AI writes the unit tests, the code quality problem is solved.",
+      recommendedAnswer: "False",
+      reality: "AI can generate useful tests, but it may miss requirements, equivalence classes, boundary cases, timing behavior, fault injection, hardware assumptions, and safety/security scenarios.",
+      followUpQuestion: "What test type would benefit most from AI?",
+      followUpOptions: [
+        "Unit tests",
+        "Integration tests",
+        "HIL test scenarios",
+        "Regression tests",
+        "Fault injection tests",
+        "Log-based test recommendations",
+      ],
+    },
+    {
+      num: "05",
+      title: "MB5 — AI Should Never Touch Safety Work",
+      statement: "AI should never be used in safety-related work.",
+      recommendedAnswer: "Depends",
+      reality: "AI may be useful as an assistant for summarization, checklist preparation, test idea generation, and review support, but final safety decisions and safety work products must remain under controlled engineering processes.",
+      followUpQuestion: "What safety-related AI use would you allow first?",
+      followUpOptions: [
+        "Summarize safety requirements",
+        "Generate review checklist",
+        "Suggest test cases",
+        "Draft FMEA ideas",
+        "Generate safety-critical code",
+        "None",
+      ],
+    },
+    {
+      num: "06",
+      title: "MB6 — No Fault Means No Safety Risk",
+      statement: "If the system has no fault, there is no safety risk.",
+      recommendedAnswer: "False",
+      reality: "SOTIF exists because hazards can result from functional insufficiencies, foreseeable misuse, or performance limitations, even when there is no classical malfunction.",
+      followUpQuestion: "Where could AI help with SOTIF?",
+      followUpOptions: [
+        "Find misuse scenarios",
+        "Generate edge-case scenarios",
+        "Analyze limitations",
+        "Summarize field feedback",
+        "Create simulation scenarios",
+        "I would not use AI here",
+      ],
+    },
+    {
+      num: "07",
+      title: "MB7 — AI Can Generate Final Safety Requirements",
+      statement: "AI can safely generate final safety requirements from a feature description.",
+      recommendedAnswer: "Depends, but not as final output.",
+      reality: "AI can draft candidate requirements and ask clarification questions, but safety requirements need system context, hazard analysis, ASIL reasoning, verification strategy, and expert approval.",
+      followUpQuestion: "What should AI do in safety requirements work?",
+      followUpOptions: [
+        "Generate final requirements",
+        "Suggest candidate requirements",
+        "Ask clarification questions",
+        "Check consistency",
+        "Link requirements to tests",
+        "No role",
+      ],
+    },
+    {
+      num: "08",
+      title: "MB8 — Cybersecurity Is Only for Connected Features",
+      statement: "Cybersecurity risk is only relevant to connected vehicle features.",
+      recommendedAnswer: "False",
+      reality: "Automotive cybersecurity is broader than infotainment or cloud connectivity. Diagnostic services, update mechanisms, development tools, interfaces, data, and ECU behavior can all have cybersecurity relevance.",
+      followUpQuestion: "Where is AI most useful for cybersecurity?",
+      followUpOptions: [
+        "Threat modeling support",
+        "Secure code review",
+        "Diagnostic service risk review",
+        "Security test generation",
+        "Vulnerability triage",
+        "I would avoid AI here",
+      ],
+    },
+    {
+      num: "09",
+      title: "MB9 — Safe to Paste Code into Any AI Tool",
+      statement: "It is safe to paste project code into any AI tool if the goal is only debugging.",
+      recommendedAnswer: "False",
+      reality: "Confidentiality, IP, customer agreements, cybersecurity policies, and data handling rules still apply. Approved enterprise tools and data rules are necessary.",
+      followUpQuestion: "What should be the rule?",
+      followUpOptions: [
+        "Any AI tool is fine",
+        "Approved tools only",
+        "No confidential code",
+        "No customer data",
+        "Local/private AI only",
+        "Depends on data classification",
+      ],
+    },
+    {
+      num: "10",
+      title: "MB10 — AI Tools Create New Attack Surface",
+      statement: "AI coding assistants create a new attack surface.",
+      recommendedAnswer: "True",
+      reality: "AI-connected development tools can introduce new risks, especially when they read repositories, execute actions, or interact with external context. Governance, approved tools, permission boundaries, and review are important.",
+      followUpQuestion: "What control matters most?",
+      followUpOptions: [
+        "Approved tools",
+        "Restricted permissions",
+        "No autonomous execution",
+        "Security review",
+        "Prompt/output logging",
+        "Developer training",
+      ],
+    },
+    {
+      num: "11",
+      title: "MB11 — AI Documentation Automatically Helps ASPICE",
+      statement: "AI-generated documentation is automatically useful for ASPICE.",
+      recommendedAnswer: "False",
+      reality: "Documentation is useful only if it is accurate, reviewed, consistent, and linked to the actual engineering artifacts. Automotive process capability depends on evidence quality, not document volume.",
+      followUpQuestion: "What AI documentation use is most valuable?",
+      followUpOptions: [
+        "Design summaries",
+        "Interface descriptions",
+        "Review minutes",
+        "Release notes",
+        "Traceability suggestions",
+        "Test reports",
+      ],
+    },
+    {
+      num: "12",
+      title: "MB12 — Traceability Is a Perfect AI Use Case",
+      statement: "Traceability is a perfect AI use case.",
+      recommendedAnswer: "Depends",
+      reality: "AI can suggest links between requirements, design, code, tests, and defects, but humans must validate the links. Wrong traceability creates false confidence.",
+      followUpQuestion: "What traceability link should AI suggest first?",
+      followUpOptions: [
+        "Requirement to test",
+        "Requirement to design",
+        "Requirement to code",
+        "Defect to test",
+        "Change request to commit",
+        "Safety requirement to verification evidence",
+      ],
+    },
+    {
+      num: "13",
+      title: "MB13 — AI Understands AUTOSAR Like Normal Code",
+      statement: "AI can understand AUTOSAR configuration as easily as normal application code.",
+      recommendedAnswer: "False",
+      reality: "AUTOSAR configuration depends on tooling, generated artifacts, dependencies, ECU extract, BSW stack configuration, integration constraints, and vendor-specific details. AI can assist, but direct changes need strong validation.",
+      followUpQuestion: "What AUTOSAR task should AI support first?",
+      followUpOptions: [
+        "Explain configuration",
+        "Check naming consistency",
+        "Generate review checklist",
+        "Detect missing links",
+        "Suggest configuration changes",
+        "Generate full configuration",
+      ],
+    },
+    {
+      num: "14",
+      title: "MB14 — AI Is Safe for Calibration Because It Only Suggests Numbers",
+      statement: "AI is safe for calibration because it only suggests numbers.",
+      recommendedAnswer: "False",
+      reality: "Calibration values affect physical behavior, drivability, emissions, thermal limits, torque response, battery behavior, and safety margins. Suggestions must go through engineering validation.",
+      followUpQuestion: "Where could AI help calibration safely?",
+      followUpOptions: [
+        "Detect anomalies",
+        "Summarize trends",
+        "Compare calibration sets",
+        "Suggest test points",
+        "Generate reports",
+        "Recommend final values",
+      ],
+    },
+    {
+      num: "15",
+      title: "MB15 — AI Can Diagnose Test Failures Faster",
+      statement: "AI can help diagnose test failures faster than manual log reading.",
+      recommendedAnswer: "Often true, with validation.",
+      reality: "AI can summarize logs, cluster similar failures, detect recurring patterns, and propose hypotheses. Root cause still needs verification.",
+      followUpQuestion: "What logs should AI analyze first?",
+      followUpOptions: [
+        "CI logs",
+        "CAN traces",
+        "UDS diagnostic logs",
+        "HIL logs",
+        "SIL simulation logs",
+        "Build logs",
+        "Field issue logs",
+      ],
+    },
+    {
+      num: "16",
+      title: "MB16 — AI Adoption Is Mainly Tooling",
+      statement: "AI adoption is mainly a tooling topic.",
+      recommendedAnswer: "False",
+      reality: "AI adoption is a system change: tooling, process, training, governance, data classification, review culture, metrics, and leadership expectations.",
+      followUpQuestion: "What is missing most in our department?",
+      followUpOptions: [
+        "Tools",
+        "Training",
+        "Governance",
+        "Use-case selection",
+        "Data access",
+        "Management support",
+        "Engineering champions",
+        "Metrics",
+      ],
     },
   ];
 
+  const mythBustersQuestions: QuestionSeed[] = [];
+
+  for (const myth of MYTHS) {
+    const voteOrder = (parseInt(myth.num, 10) - 1) * 2 + 1;
+
+    // Vote question (multi_select — vote group + confidence group + meta)
+    mythBustersQuestions.push({
+      id: `mb_q${myth.num}_vote`,
+      roundId: "mythbusters",
+      order: voteOrder,
+      title: myth.title,
+      prompt: myth.statement,
+      questionType: "multi_select",
+      options: [
+        ...mbVoteOpts(myth.num),
+        // Myth metadata — hidden from participant, read by presenter for reveal
+        {
+          id: `mb${myth.num}_m1`,
+          label: "recommended_answer",
+          description: myth.recommendedAnswer,
+          category: "myth_meta",
+          order: 8,
+        },
+        {
+          id: `mb${myth.num}_m2`,
+          label: "reality",
+          description: myth.reality,
+          category: "myth_meta",
+          order: 9,
+        },
+      ],
+    });
+
+    // Follow-up question (single_choice)
+    mythBustersQuestions.push({
+      id: `mb_q${myth.num}_fu`,
+      roundId: "mythbusters",
+      order: voteOrder + 1,
+      title: `${myth.title} — Follow-up`,
+      prompt: myth.followUpQuestion,
+      questionType: "single_choice",
+      options: myth.followUpOptions.map((label, idx) => ({
+        id: `mb${myth.num}_fu_o${String(idx + 1).padStart(2, "0")}`,
+        label,
+        order: idx + 1,
+      })),
+    });
+  }
+
   for (const q of mythBustersQuestions) await upsertQuestion(q);
-  console.log(`✓ ${mythBustersQuestions.length} MythBusters questions seeded`);
+  console.log(`✓ ${mythBustersQuestions.length} MythBusters questions seeded (MB01–MB16 vote + follow-up)`);
 
   const total =
     regQuestions.length +

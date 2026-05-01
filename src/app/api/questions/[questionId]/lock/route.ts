@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { emitGameEvent } from "@/lib/eventBus";
+import {
+  buildCurrentQuestionAnalysis,
+  buildCumulativePulseAnalysis,
+} from "@/lib/localAnalysis";
 
 interface Params {
   params: Promise<{ questionId: string }>;
@@ -10,8 +14,10 @@ interface Params {
  * POST /api/questions/[questionId]/lock
  *
  * Locks a question — no further responses are accepted once locked.
- * Creates a placeholder AnalysisResult record for the current-question analysis.
- * Emits `question:locked` and `analysis:current-question-ready` events.
+ * Computes CurrentQuestionAnalysis (local aggregate) and CumulativePulseAnalysis
+ * and stores both in AnalysisResult.
+ * Emits `question:locked`, `analysis:current-question-ready`, and
+ * `analysis:cumulative-pulse-ready` events.
  */
 export async function POST(_req: Request, { params }: Params) {
   const { questionId } = await params;
@@ -38,34 +44,85 @@ export async function POST(_req: Request, { params }: Params) {
     data: { isLocked: true, isActive: false },
   });
 
-  // Find the session this question belongs to (via responses, if any)
+  // Resolve the session via responses or active question on session
   const firstResponse = await prisma.response.findFirst({
     where: { questionId },
     select: { sessionId: true },
   });
+  // Fallback: find session that had this as active question
+  const sessionRecord = firstResponse
+    ? null
+    : await prisma.gameSession.findFirst({
+        where: { activeQuestionId: questionId },
+        select: { id: true },
+      });
 
-  const sessionId = firstResponse?.sessionId ?? "unknown";
+  const sessionId =
+    firstResponse?.sessionId ?? sessionRecord?.id ?? "unknown";
 
-  // Create a placeholder AnalysisResult — will be populated by OpenAI in Phase 8
   if (sessionId !== "unknown") {
-    const analysis = await prisma.analysisResult.create({
-      data: {
-        sessionId,
-        questionId,
-        analysisType: "current_question",
-        payload: JSON.stringify({
-          status: "pending",
-          responseCount: question._count.responses,
-        }),
-      },
-    });
-
+    // Emit locked event immediately so participants see lock state
     emitGameEvent("question:locked", sessionId, { questionId });
-    emitGameEvent("analysis:current-question-ready", sessionId, {
-      questionId,
-      analysisId: analysis.id,
-      status: "pending",
-    });
+
+    // Compute local analyses (non-blocking — errors don't fail the lock)
+    try {
+      const [currentAnalysis, pulseAnalysis] = await Promise.all([
+        buildCurrentQuestionAnalysis(sessionId, questionId),
+        buildCumulativePulseAnalysis(sessionId),
+      ]);
+
+      const [cqRecord, cpRecord] = await Promise.all([
+        prisma.analysisResult.create({
+          data: {
+            sessionId,
+            questionId,
+            analysisType: "current_question",
+            payload: JSON.stringify(currentAnalysis),
+          },
+        }),
+        prisma.analysisResult.create({
+          data: {
+            sessionId,
+            questionId: null,
+            analysisType: "cumulative_pulse",
+            payload: JSON.stringify(pulseAnalysis),
+          },
+        }),
+      ]);
+
+      emitGameEvent("analysis:current-question-ready", sessionId, {
+        questionId,
+        analysisId: cqRecord.id,
+        status: "complete",
+        source: "local",
+      });
+      emitGameEvent("analysis:cumulative-pulse-ready", sessionId, {
+        analysisId: cpRecord.id,
+        status: "complete",
+        source: "local",
+      });
+    } catch (err) {
+      console.error("Local analysis failed (non-blocking):", err);
+      // Create a minimal pending record so the presenter knows analysis was attempted
+      const fallback = await prisma.analysisResult.create({
+        data: {
+          sessionId,
+          questionId,
+          analysisType: "current_question",
+          payload: JSON.stringify({
+            analysisType: "current_question",
+            source: "local",
+            status: "failed",
+            responseCount: question._count.responses,
+          }),
+        },
+      });
+      emitGameEvent("analysis:current-question-ready", sessionId, {
+        questionId,
+        analysisId: fallback.id,
+        status: "failed",
+      });
+    }
   }
 
   return NextResponse.json({

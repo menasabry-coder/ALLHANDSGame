@@ -6,10 +6,56 @@ import {
   getQuestionResults,
   getParticipantCount,
 } from "@/lib/store";
+import { prisma } from "@/lib/prisma";
 import type { AIAnalysis } from "@/lib/types";
 
 interface Params {
   params: Promise<{ sessionId: string }>;
+}
+
+/**
+ * GET /api/sessions/[sessionId]/analyze
+ *
+ * Returns the most recent AnalysisResult records for this session.
+ * Query params:
+ *   ?type=current_question  — latest per-question analysis
+ *   ?type=cumulative_pulse  — latest cumulative pulse
+ *   ?questionId=<id>        — filter to a specific question (for current_question type)
+ */
+export async function GET(request: Request, { params }: Params) {
+  const { sessionId } = await params;
+  const url = new URL(request.url);
+  const type = url.searchParams.get("type");
+  const questionId = url.searchParams.get("questionId");
+
+  const session = await prisma.gameSession.findUnique({
+    where: { id: sessionId },
+  });
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
+
+  const where = {
+    sessionId,
+    ...(type ? { analysisType: type } : {}),
+    ...(questionId ? { questionId } : {}),
+  };
+
+  const results = await prisma.analysisResult.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: type === "cumulative_pulse" ? 1 : 50,
+  });
+
+  const parsed = results.map((r) => {
+    try {
+      return { ...r, payload: JSON.parse(r.payload) };
+    } catch {
+      return r;
+    }
+  });
+
+  return NextResponse.json({ sessionId, results: parsed });
 }
 
 /**

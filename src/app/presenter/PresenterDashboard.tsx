@@ -30,7 +30,7 @@ interface LiveQuestion {
   freeTexts: string[];
   marketScore?: number;
   riskScores?: Record<string, number>;
-  options: Array<{ id: string; label: string; category: string | null }>;
+  options: Array<{ id: string; label: string; category: string | null; description?: string | null }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,37 @@ function DistributionBars({
 // Live question results panel
 // ---------------------------------------------------------------------------
 
-function LiveQuestionResults({ question }: { question: LiveQuestion }) {
+/** Myth reality reveal card — shown in presenter view after question is locked */
+function MythRealityCard({
+  question,
+}: {
+  question: LiveQuestion;
+}) {
+  const metaOpts = question.options.filter((o) => o.category === "myth_meta");
+  const recommendedAnswer = metaOpts.find((o) => o.label === "recommended_answer")?.description ?? null;
+  const reality = metaOpts.find((o) => o.label === "reality")?.description ?? null;
+
+  if (!recommendedAnswer && !reality) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-800 bg-amber-900/20 p-4 space-y-2">
+      <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+        💡 Engineering Reality
+      </p>
+      {recommendedAnswer && (
+        <p className="text-sm text-amber-300">
+          <span className="font-semibold">Recommended answer:</span>{" "}
+          <span className="italic">{recommendedAnswer}</span>
+        </p>
+      )}
+      {reality && (
+        <p className="text-sm text-gray-300 leading-relaxed">{reality}</p>
+      )}
+    </div>
+  );
+}
+
+function LiveQuestionResults({ question, showReveal }: { question: LiveQuestion; showReveal?: boolean }) {
   const roundLabel =
     question.roundId === "stock_market"
       ? "🏦 Stock Market"
@@ -87,7 +117,14 @@ function LiveQuestionResults({ question }: { question: LiveQuestion }) {
       ? "💡 MythBusters"
       : question.roundId;
 
-  const rows = question.options.filter((o) => o.category !== "column");
+  const isMythVote =
+    question.roundId === "mythbusters" &&
+    question.questionType === "multi_select" &&
+    question.options.some((o) => o.category === "vote");
+
+  const rows = question.options.filter(
+    (o) => o.category !== "column" && o.category !== "myth_meta"
+  );
   const optionById = Object.fromEntries(question.options.map((o) => [o.id, o]));
 
   return (
@@ -95,18 +132,53 @@ function LiveQuestionResults({ question }: { question: LiveQuestion }) {
       title={question.title}
       subtitle={`${roundLabel} · ${question.responseCount} response${question.responseCount !== 1 ? "s" : ""} · ${question.questionType}`}
     >
-      {(question.questionType === "single_choice" ||
-        question.questionType === "multi_select") && (
-        <DistributionBars
-          data={Object.fromEntries(
-            Object.entries(question.tally).map(([id, n]) => [
-              optionById[id]?.label ?? id,
-              n,
-            ])
-          )}
-          colorClass="bg-blue-500"
-        />
+      {/* Myth vote: two separate bar charts — vote group + confidence group */}
+      {isMythVote && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Verdict
+            </p>
+            <DistributionBars
+              data={Object.fromEntries(
+                question.options
+                  .filter((o) => o.category === "vote")
+                  .map((o) => [o.label, question.tally[o.id] ?? 0])
+              )}
+              colorClass="bg-blue-500"
+            />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Confidence
+            </p>
+            <DistributionBars
+              data={Object.fromEntries(
+                question.options
+                  .filter((o) => o.category === "confidence")
+                  .map((o) => [o.label, question.tally[o.id] ?? 0])
+              )}
+              colorClass="bg-purple-500"
+            />
+          </div>
+          {/* Reality reveal shown after lock */}
+          {showReveal && <MythRealityCard question={question} />}
+        </div>
       )}
+
+      {/* Regular single_choice / multi_select (non-myth) */}
+      {!isMythVote &&
+        (question.questionType === "single_choice" ||
+          question.questionType === "multi_select") && (
+          <DistributionBars
+            data={Object.fromEntries(
+              Object.entries(question.tally)
+                .filter(([id]) => optionById[id]?.category !== "myth_meta")
+                .map(([id, n]) => [optionById[id]?.label ?? id, n])
+            )}
+            colorClass="bg-blue-500"
+          />
+        )}
 
       {question.questionType === "allocation" && (
         <div className="space-y-2">
@@ -167,10 +239,85 @@ function LiveQuestionResults({ question }: { question: LiveQuestion }) {
 
       {question.questionType === "matrix" && (
         <p className="text-xs text-gray-500 italic">
-          Matrix responses collected. Full heatmap available in Phase 7 analysis.
+          Matrix responses collected. Full heatmap available in Phase 8 analysis.
         </p>
       )}
     </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Local analysis panel
+// ---------------------------------------------------------------------------
+
+interface AnalysisCardData {
+  title: string;
+  value: string;
+  subtitle: string;
+  tone: string;
+}
+
+interface LocalAnalysis {
+  headline?: string;
+  oneSentenceSummary?: string;
+  presenterTalkingPoint?: string;
+  controversyScore?: number;
+  agreementLevel?: string;
+  dashboardCards?: AnalysisCardData[];
+  confidence?: string;
+  source?: string;
+}
+
+function AnalysisPanel({ analysis }: { analysis: LocalAnalysis }) {
+  const toneClass = (tone: string) => {
+    if (tone === "positive") return "text-green-400";
+    if (tone === "risk") return "text-red-400";
+    if (tone === "warning") return "text-amber-400";
+    return "text-gray-300";
+  };
+
+  return (
+    <div className="rounded-xl border border-blue-900 bg-blue-950/30 p-4 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-bold text-blue-400 uppercase tracking-wider">
+          📊 Question Analysis {analysis.source === "local" ? "(Local)" : "(AI)"}
+        </p>
+        {analysis.confidence && (
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${
+            analysis.confidence === "high"
+              ? "border-green-700 text-green-400"
+              : analysis.confidence === "medium"
+              ? "border-amber-700 text-amber-400"
+              : "border-gray-700 text-gray-500"
+          }`}>
+            {analysis.confidence} confidence
+          </span>
+        )}
+      </div>
+      {analysis.headline && (
+        <p className="text-base font-semibold text-white">{analysis.headline}</p>
+      )}
+      {analysis.oneSentenceSummary && (
+        <p className="text-xs text-gray-400">{analysis.oneSentenceSummary}</p>
+      )}
+      {analysis.dashboardCards && analysis.dashboardCards.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          {analysis.dashboardCards.map((card, i) => (
+            <div key={i} className="bg-gray-900/60 rounded-lg p-2 border border-gray-800">
+              <p className="text-xs text-gray-500">{card.title}</p>
+              <p className={`text-sm font-bold ${toneClass(card.tone)}`}>{card.value}</p>
+              <p className="text-xs text-gray-600">{card.subtitle}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {analysis.presenterTalkingPoint && (
+        <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+          <p className="text-xs font-semibold text-gray-400 mb-1">🎤 Talking point</p>
+          <p className="text-xs text-gray-300 italic">{analysis.presenterTalkingPoint}</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -194,6 +341,8 @@ export default function PresenterDashboard({
   const [loadError, setLoadError] = useState("");
   const [activeRoundTab, setActiveRoundTab] = useState("stock_market");
   const [liveQuestion, setLiveQuestion] = useState<LiveQuestion | null>(null);
+  const [lockedQuestion, setLockedQuestion] = useState<LiveQuestion | null>(null);
+  const [currentAnalysis, setCurrentAnalysis] = useState<LocalAnalysis | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   // Compute join URL once we have the session code
@@ -251,6 +400,27 @@ export default function PresenterDashboard({
     [sessionId]
   );
 
+  // Fetch latest analysis for a question after it locks
+  const fetchAnalysis = useCallback(
+    async (questionId: string) => {
+      if (!sessionId) return;
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/analyze?type=current_question&questionId=${questionId}`
+        );
+        if (res.ok) {
+          const data = await res.json() as { results: Array<{ payload: LocalAnalysis }> };
+          if (data.results[0]?.payload) {
+            setCurrentAnalysis(data.results[0].payload);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [sessionId]
+  );
+
   useEffect(() => {
     fetchStats();
   }, [fetchStats]);
@@ -289,6 +459,8 @@ export default function PresenterDashboard({
           setSession((prev) =>
             prev ? { ...prev, activeQuestionId: p.questionId } : prev
           );
+          setLockedQuestion(null);
+          setCurrentAnalysis(null);
           fetchLiveQuestion(p.questionId);
         }
 
@@ -303,12 +475,37 @@ export default function PresenterDashboard({
         }
 
         if (event.type === "question:locked") {
+          // Move active question to locked state and refresh
+          const p = event.payload as { questionId: string };
           setSession((prev) => {
             if (prev?.activeQuestionId) {
               fetchLiveQuestion(prev.activeQuestionId);
             }
-            return prev;
+            return prev ? { ...prev, activeQuestionId: null } : prev;
           });
+          // Fetch question data for locked reveal
+          setTimeout(async () => {
+            try {
+              const res = await fetch(
+                `/api/sessions/${sessionId}/round-questions`
+              );
+              if (res.ok) {
+                const data = await res.json();
+                const found = (data.questions as LiveQuestion[]).find(
+                  (q) => q.id === p.questionId
+                );
+                if (found) setLockedQuestion(found);
+              }
+            } catch { /* ignore */ }
+            fetchAnalysis(p.questionId);
+          }, 500);
+        }
+
+        if (event.type === "analysis:current-question-ready") {
+          const p = event.payload as { questionId: string; status: string };
+          if (p.status === "complete") {
+            fetchAnalysis(p.questionId);
+          }
         }
       } catch {
         // ignore
@@ -318,7 +515,7 @@ export default function PresenterDashboard({
     return () => {
       es.close();
     };
-  }, [sessionId, fetchStats, fetchLiveQuestion]);
+  }, [sessionId, fetchStats, fetchLiveQuestion, fetchAnalysis]);
 
   // When session loads, load live question if one is active
   useEffect(() => {
@@ -443,7 +640,15 @@ export default function PresenterDashboard({
         <LiveQuestionResults question={liveQuestion} />
       )}
 
-      {!liveQuestion && (
+      {/* Locked question results + reality reveal + analysis */}
+      {!liveQuestion && lockedQuestion && (
+        <div className="space-y-4">
+          <LiveQuestionResults question={lockedQuestion} showReveal />
+          {currentAnalysis && <AnalysisPanel analysis={currentAnalysis} />}
+        </div>
+      )}
+
+      {!liveQuestion && !lockedQuestion && (
         <div className="rounded-xl border border-gray-800 bg-gray-900/20 px-6 py-4 text-center">
           <p className="text-gray-600 text-sm italic">
             No active question. Activate a question from the{" "}
