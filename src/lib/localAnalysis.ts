@@ -343,7 +343,7 @@ export async function buildCumulativePulseAnalysis(
         name: opt?.label ?? id,
         score: coins,
         whyItMatters: opt?.description ?? "High community investment signal.",
-        recommendedPilot: (opt?.riskLevel ?? "high") === "low" || (opt?.riskLevel ?? "") === "medium",
+        recommendedPilot: (opt?.riskLevel ?? "") === "low" || (opt?.riskLevel ?? "") === "medium",
       });
     }
   }
