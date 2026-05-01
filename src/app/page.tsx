@@ -1,105 +1,87 @@
-"use client";
-
-import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { Session } from "@/lib/types";
+import AppShell from "@/components/AppShell";
+import PrimaryButton from "@/components/PrimaryButton";
+import { GAME_NAME, GAME_SUBTITLE, ROUNDS } from "@/config/gameConfig";
 
 export default function HomePage() {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [joinCode, setJoinCode] = useState("");
-
-  useEffect(() => {
-    fetch("/api/sessions")
-      .then((r) => r.json())
-      .then(setSessions)
-      .catch(() => {});
-  }, []);
-
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen p-6 bg-gradient-to-b from-gray-900 via-gray-950 to-black text-white">
-      {/* Hero */}
-      <div className="text-center mb-12">
-        <h1 className="text-5xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-          Engineering Pulse Arena
-        </h1>
-        <p className="mt-3 text-gray-400 text-lg max-w-md mx-auto">
-          Real-time polling &amp; trivia for your All-Hands meetings
-        </p>
-      </div>
+    <AppShell hideNav>
+      <div className="flex flex-col items-center justify-center flex-1 p-8 bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950">
+        {/* Hero */}
+        <div className="text-center mb-14 max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-widest text-teal-400 mb-3">
+            Automotive Engineering · AI Readiness
+          </p>
+          <h1 className="text-6xl font-extrabold tracking-tight bg-gradient-to-r from-teal-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+            {GAME_NAME}
+          </h1>
+          <p className="mt-3 text-2xl font-semibold text-gray-300">
+            {GAME_SUBTITLE}
+          </p>
+          <p className="mt-4 text-gray-400 max-w-lg mx-auto leading-relaxed">
+            An interactive department session exploring AI adoption, risk, and
+            responsible engineering. Three rounds. Real-time sentiment. Zero
+            wrong answers.
+          </p>
+        </div>
 
-      {/* Quick Join */}
-      <div className="w-full max-w-sm mb-10">
-        <label className="block text-sm text-gray-400 mb-1">
-          Join a session by ID
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value)}
-            placeholder="Paste session ID..."
-            className="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-          />
-          <Link
-            href={joinCode ? `/play/${joinCode}` : "#"}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-              joinCode
-                ? "bg-blue-600 hover:bg-blue-500 text-white"
-                : "bg-gray-700 text-gray-500 cursor-not-allowed"
-            }`}
-          >
-            Join
+        {/* Role entry points */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-xl mb-14">
+          <Link href="/join" className="block">
+            <div className="rounded-2xl bg-teal-900/30 border border-teal-700/40 p-6 text-center hover:bg-teal-900/50 transition cursor-pointer h-full">
+              <p className="text-3xl mb-2">📱</p>
+              <p className="font-bold text-teal-200">Participant</p>
+              <p className="text-xs text-teal-500 mt-1">Join via mobile</p>
+            </div>
+          </Link>
+
+          <Link href="/presenter" className="block">
+            <div className="rounded-2xl bg-blue-900/30 border border-blue-700/40 p-6 text-center hover:bg-blue-900/50 transition cursor-pointer h-full">
+              <p className="text-3xl mb-2">📽️</p>
+              <p className="font-bold text-blue-200">Presenter</p>
+              <p className="text-xs text-blue-500 mt-1">Projector dashboard</p>
+            </div>
+          </Link>
+
+          <Link href="/admin" className="block">
+            <div className="rounded-2xl bg-purple-900/30 border border-purple-700/40 p-6 text-center hover:bg-purple-900/50 transition cursor-pointer h-full">
+              <p className="text-3xl mb-2">⚙️</p>
+              <p className="font-bold text-purple-200">Admin</p>
+              <p className="text-xs text-purple-500 mt-1">Control panel</p>
+            </div>
+          </Link>
+        </div>
+
+        {/* Game rounds overview */}
+        <div className="w-full max-w-xl">
+          <p className="text-xs text-gray-500 uppercase tracking-widest font-semibold text-center mb-4">
+            Three Rounds
+          </p>
+          <div className="space-y-2">
+            {ROUNDS.map((round) => (
+              <div
+                key={round.id}
+                className="flex items-center gap-4 rounded-xl bg-gray-800/40 border border-gray-700/30 px-5 py-3"
+              >
+                <span className="text-lg font-extrabold text-gray-600">
+                  {round.order}
+                </span>
+                <span className="text-sm font-medium text-gray-300">
+                  {round.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-10 flex gap-4">
+          <Link href="/report">
+            <PrimaryButton variant="secondary" size="sm">
+              View Report
+            </PrimaryButton>
           </Link>
         </div>
       </div>
-
-      {/* Navigation */}
-      <div className="flex gap-4 mb-10">
-        <Link
-          href="/admin"
-          className="rounded-xl bg-purple-600 hover:bg-purple-500 px-6 py-3 font-semibold transition"
-        >
-          Admin Panel
-        </Link>
-      </div>
-
-      {/* Active Sessions */}
-      {sessions.length > 0 && (
-        <section className="w-full max-w-lg">
-          <h2 className="text-xl font-bold mb-4">Recent Sessions</h2>
-          <ul className="space-y-2">
-            {sessions.map((s) => (
-              <li
-                key={s.id}
-                className="flex items-center justify-between bg-gray-800 rounded-lg px-4 py-3"
-              >
-                <div>
-                  <p className="font-medium">{s.name}</p>
-                  <p className="text-xs text-gray-500">{s.id}</p>
-                </div>
-                <div className="flex gap-2">
-                  <span
-                    className={`text-xs px-2 py-1 rounded-full ${
-                      s.status === "active"
-                        ? "bg-green-900 text-green-300"
-                        : s.status === "finished"
-                          ? "bg-gray-700 text-gray-400"
-                          : "bg-yellow-900 text-yellow-300"
-                    }`}
-                  >
-                    {s.status}
-                  </span>
-                  <Link
-                    href={`/dashboard/${s.id}`}
-                    className="text-xs text-blue-400 hover:underline"
-                  >
-                    Dashboard
-                  </Link>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </main>
+    </AppShell>
   );
 }

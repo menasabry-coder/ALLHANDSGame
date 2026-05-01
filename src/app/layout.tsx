@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Engineering Pulse Arena",
-  description: "Live interactive polling game for all-hands meetings",
+  title: "AI Arena — The Engineering Trust Game",
+  description:
+    "An interactive department session exploring AI adoption, risk, and responsible engineering.",
 };
 
 export default function RootLayout({
