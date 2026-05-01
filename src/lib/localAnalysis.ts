@@ -464,7 +464,7 @@ function makeEmptyCurrentAnalysis(
     source: "local",
     confidence: "low",
     responseRate: 0,
-    headline: "No data yet",
+    headline: "No data yet…",
     oneSentenceSummary: "Question not found or no responses.",
     winningPattern: { label: "—", value: null, explanation: "No data." },
     agreementLevel: "insufficient_data",
