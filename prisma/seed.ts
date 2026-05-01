@@ -85,6 +85,7 @@ async function main() {
 
   // -------------------------------------------------------------------------
   // Registration questions  (roundId = "registration")
+  // Phase 3 spec questions — R0.1 through R0.5
   // -------------------------------------------------------------------------
   const regQuestions: QuestionSeed[] = [
     {
@@ -95,11 +96,21 @@ async function main() {
       prompt: "Which engineering area best describes your current role?",
       questionType: "single_choice",
       options: [
-        { id: "reg_q1_o1", label: "Software / Embedded", order: 1 },
-        { id: "reg_q1_o2", label: "Systems Engineering", order: 2 },
-        { id: "reg_q1_o3", label: "Integration & Test", order: 3 },
-        { id: "reg_q1_o4", label: "Architecture / Platform", order: 4 },
-        { id: "reg_q1_o5", label: "Other / Management", order: 5 },
+        { id: "reg_q1_o01", label: "Embedded software", order: 1 },
+        { id: "reg_q1_o02", label: "AUTOSAR / BSW / MCAL", order: 2 },
+        { id: "reg_q1_o03", label: "Application software", order: 3 },
+        { id: "reg_q1_o04", label: "Powertrain controls", order: 4 },
+        { id: "reg_q1_o05", label: "Diagnostics / UDS", order: 5 },
+        { id: "reg_q1_o06", label: "Cybersecurity", order: 6 },
+        { id: "reg_q1_o07", label: "Functional safety", order: 7 },
+        { id: "reg_q1_o08", label: "Testing / validation", order: 8 },
+        { id: "reg_q1_o09", label: "DevOps / CI/CD", order: 9 },
+        { id: "reg_q1_o10", label: "Tools / automation", order: 10 },
+        { id: "reg_q1_o11", label: "System engineering / requirements", order: 11 },
+        { id: "reg_q1_o12", label: "Calibration", order: 12 },
+        { id: "reg_q1_o13", label: "Architecture", order: 13 },
+        { id: "reg_q1_o14", label: "Project / technical leadership", order: 14 },
+        { id: "reg_q1_o15", label: "Other", order: 15 },
       ],
     },
     {
@@ -110,10 +121,11 @@ async function main() {
       prompt: "How many years of professional engineering experience do you have?",
       questionType: "single_choice",
       options: [
-        { id: "reg_q2_o1", label: "0–3 years", order: 1 },
-        { id: "reg_q2_o2", label: "4–8 years", order: 2 },
-        { id: "reg_q2_o3", label: "9–15 years", order: 3 },
-        { id: "reg_q2_o4", label: "16+ years", order: 4 },
+        { id: "reg_q2_o1", label: "0–2 years", order: 1 },
+        { id: "reg_q2_o2", label: "3–5 years", order: 2 },
+        { id: "reg_q2_o3", label: "6–10 years", order: 3 },
+        { id: "reg_q2_o4", label: "11–15 years", order: 4 },
+        { id: "reg_q2_o5", label: "15+ years", order: 5 },
       ],
     },
     {
@@ -124,27 +136,38 @@ async function main() {
       prompt: "How often do you currently use AI tools in your work?",
       questionType: "single_choice",
       options: [
-        { id: "reg_q3_o1", label: "Daily", order: 1 },
-        { id: "reg_q3_o2", label: "Several times a week", order: 2 },
-        { id: "reg_q3_o3", label: "Occasionally", order: 3 },
-        { id: "reg_q3_o4", label: "Rarely or never", order: 4 },
+        { id: "reg_q3_o1", label: "I do not use AI tools", order: 1 },
+        { id: "reg_q3_o2", label: "I tried them once or twice", order: 2 },
+        { id: "reg_q3_o3", label: "I use AI occasionally", order: 3 },
+        { id: "reg_q3_o4", label: "I use AI weekly", order: 4 },
+        { id: "reg_q3_o5", label: "I use AI daily", order: 5 },
+        { id: "reg_q3_o6", label: "I already build AI-assisted workflows", order: 6 },
       ],
     },
     {
       id: "reg_q4",
       roundId: "registration",
       order: 4,
-      title: "AI Attitude",
-      prompt:
-        "Which statement best captures your current attitude toward AI in automotive software?",
+      title: "Current AI Attitude",
+      prompt: "How would you describe your current attitude toward AI?",
       questionType: "single_choice",
       options: [
-        { id: "reg_q4_o1", label: "Early adopter — I actively experiment", order: 1 },
-        { id: "reg_q4_o2", label: "Optimistic but cautious", order: 2 },
-        { id: "reg_q4_o3", label: "Neutral / waiting to see", order: 3 },
-        { id: "reg_q4_o4", label: "Skeptical — I need convincing", order: 4 },
-        { id: "reg_q4_o5", label: "Concerned about risks", order: 5 },
+        { id: "reg_q4_o1", label: "Excited", order: 1 },
+        { id: "reg_q4_o2", label: "Curious", order: 2 },
+        { id: "reg_q4_o3", label: "Neutral", order: 3 },
+        { id: "reg_q4_o4", label: "Careful", order: 4 },
+        { id: "reg_q4_o5", label: "Skeptical", order: 5 },
+        { id: "reg_q4_o6", label: "Concerned", order: 6 },
       ],
+    },
+    {
+      id: "reg_q5",
+      roundId: "registration",
+      order: 5,
+      title: "Team Alias",
+      prompt: "Optional: enter a team alias or table name.",
+      questionType: "free_text",
+      options: [],
     },
   ];
 
