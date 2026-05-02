@@ -5,6 +5,10 @@ import {
   listQuestions,
   getQuestionResults,
   getParticipantCount,
+  getAnalysis,
+  setAnalysis,
+  getAnalysisStatus,
+  setAnalysisStatus,
 } from "@/lib/store";
 import type { AIAnalysis } from "@/lib/types";
 
@@ -22,6 +26,9 @@ export async function POST(_request: Request, { params }: Params) {
   const { sessionId } = await params;
 
   if (!openai) {
+    // Return cached analysis if available, otherwise return error
+    const cached = getAnalysis(sessionId);
+    if (cached) return NextResponse.json(cached);
     return NextResponse.json(
       {
         error:
@@ -44,6 +51,7 @@ export async function POST(_request: Request, { params }: Params) {
     );
   }
 
+  setAnalysisStatus(sessionId, "running");
   const participantCount = getParticipantCount(sessionId);
 
   // Build results data for every question
@@ -103,19 +111,28 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   // ---- Step 3: Chat completion to produce the analysis ----
-  const systemPrompt = `You are an expert data analyst for live polling sessions at engineering all-hands meetings.
+  const systemPrompt = `You are an expert data analyst for live polling sessions at engineering all-hands meetings focused on AI adoption in automotive software engineering.
 You will be given the questions (MCQ and free-text), their answer options/responses, and the voting results.
 Total participants in the session: ${participantCount}
 ${similarities.length > 0 ? `\nThematic analysis from embeddings:\n${similarities.join("\n")}` : ""}
 
 Analyze the data and return a JSON object (no markdown fences) with this exact structure:
 {
-  "summary": "A 2-4 sentence narrative summary of what the votes/answers reveal about the team's sentiments and preferences. Include participation percentages where relevant.",
+  "summary": "A 2-4 sentence narrative summary of what the votes/answers reveal. Include participation percentages where relevant.",
   "questionInsights": [
     {
       "questionId": "<id>",
       "questionText": "<text>",
-      "insight": "A 1-2 sentence insight about the voting/answer pattern for this question. For MCQ, mention what % of participants chose each top option. For free-text, summarize the common themes.",
+      "headline": "Short punchy headline for this question result",
+      "insight": "A 1-2 sentence insight about the voting/answer pattern.",
+      "tone": "<opportunity|risk|warning|neutral>",
+      "winningPattern": "Description of the dominant response pattern",
+      "agreementLevel": 0-100,
+      "controversyScore": 0-100,
+      "keyInsights": ["insight1", "insight2"],
+      "automotiveInterpretation": "How this result applies to automotive software engineering",
+      "presenterTalkingPoint": "What the presenter should say about this result",
+      "suggestedFollowUp": "A good follow-up question for the presenter to ask",
       "recommendedVisualization": "<bar|pie|donut|ranking|wordcloud|list>"
     }
   ],
@@ -129,18 +146,26 @@ Analyze the data and return a JSON object (no markdown fences) with this exact s
       "icon": "emoji",
       "color": "<blue|green|purple|yellow|red|pink>"
     }
-  ]
+  ],
+  "pulse": {
+    "aiConfidenceScore": 0-100,
+    "opportunityIndex": 0-100,
+    "riskIndex": 0-100,
+    "governanceReadinessScore": 0-100,
+    "topOpportunities": ["opportunity1", "opportunity2", "opportunity3"],
+    "topRisks": ["risk1", "risk2", "risk3"],
+    "recommendedPilots": ["pilot1", "pilot2"],
+    "recommendedGuardrails": ["guardrail1", "guardrail2"],
+    "changedSinceLastQuestion": "What shifted most notably in this update"
+  }
 }
 
-For recommendedVisualization:
-- Use "pie" when one option dominates (>60%) or there are few options
-- Use "donut" for evenly split results
-- Use "ranking" when options represent an ordered preference
-- Use "bar" as default for MCQ
-- Use "wordcloud" for free-text questions with many short answers
-- Use "list" for free-text questions with longer answers
-
-For infographics: Generate 3-6 insightful data cards that would make a great infographic dashboard. Examples: participation rate, most popular answer, consensus level, engagement score, etc.`;
+For tone: opportunity=positive/green, risk=negative/red, warning=caution/amber, neutral=balanced/slate
+For agreementLevel: 100=everyone agreed, 0=totally split
+For controversyScore: 100=highly controversial, 0=no controversy
+For recommendedVisualization: bar=default MCQ, pie=one option >60%, donut=even split, ranking=ordered preference, wordcloud=short free text, list=longer free text
+For infographics: Generate 4-6 insightful data cards for the dashboard.
+For pulse: Synthesize all responses into department-level AI readiness metrics.`;
 
   const userPrompt = `Session: "${session.name}"
 Total participants: ${participantCount}
@@ -165,7 +190,7 @@ Total votes: ${q.totalVotes}`;
         { role: "user", content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 3000,
+      max_tokens: 4000,
     });
 
     const raw = chatRes.choices[0]?.message?.content?.trim() ?? "";
@@ -176,12 +201,32 @@ Total votes: ${q.totalVotes}`;
       .replace(/\s*```$/i, "");
 
     const analysis: AIAnalysis = JSON.parse(cleaned);
+    setAnalysis(sessionId, analysis);
+    setAnalysisStatus(sessionId, "complete");
     return NextResponse.json(analysis);
   } catch (err) {
+    setAnalysisStatus(sessionId, "failed");
     const message =
       err instanceof Error ? err.message : "OpenAI request failed";
     return NextResponse.json({ error: message }, { status: 502 });
   }
+}
+
+/**
+ * GET /api/sessions/[sessionId]/analyze
+ * Returns cached analysis and current status.
+ */
+export async function GET(_request: Request, { params }: Params) {
+  const { sessionId } = await params;
+
+  const session = getSession(sessionId);
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
+
+  const cached = getAnalysis(sessionId);
+  const status = getAnalysisStatus(sessionId);
+  return NextResponse.json({ analysis: cached ?? null, status });
 }
 
 /* ------------------------------------------------------------------ */

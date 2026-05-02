@@ -19,6 +19,14 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Question not found" }, { status: 404 });
   }
 
+  // Reject votes on locked questions
+  if (question.locked) {
+    return NextResponse.json(
+      { error: "Question is locked — voting is closed" },
+      { status: 423 }
+    );
+  }
+
   const body = await request.json();
   const optionIndex: number | undefined = body?.optionIndex;
   const participantId: string | undefined = body?.participantId;

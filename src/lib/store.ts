@@ -13,6 +13,8 @@ import type {
   QuestionType,
   Vote,
   QuestionWithResults,
+  AIAnalysis,
+  AnalysisStatus,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +25,10 @@ const questions: Map<string, Question> = new Map();
 const votes: Map<string, Vote> = new Map();
 /** participantId set per session */
 const participants: Map<string, Set<string>> = new Map();
+/** Cached analysis result per session */
+const analysisCache: Map<string, AIAnalysis> = new Map();
+/** Analysis status per session */
+const analysisStatus: Map<string, AnalysisStatus> = new Map();
 
 // ---------------------------------------------------------------------------
 // Sessions
@@ -117,6 +123,7 @@ export function addQuestion(
     options,
     order: existing.length + 1,
     published: false,
+    locked: false,
     createdAt: new Date().toISOString(),
   };
   questions.set(question.id, question);
@@ -162,6 +169,45 @@ export function publishNextQuestion(sessionId: string): Question | undefined {
   if (!next) return undefined;
   next.published = true;
   return next;
+}
+
+/** Lock a question so no new votes are accepted. */
+export function lockQuestion(questionId: string): Question | undefined {
+  const q = questions.get(questionId);
+  if (!q) return undefined;
+  q.locked = true;
+  return q;
+}
+
+/** Unlock a question to allow votes again. */
+export function unlockQuestion(questionId: string): Question | undefined {
+  const q = questions.get(questionId);
+  if (!q) return undefined;
+  q.locked = false;
+  return q;
+}
+
+// ---------------------------------------------------------------------------
+// Analysis cache
+// ---------------------------------------------------------------------------
+
+export function getAnalysis(sessionId: string): AIAnalysis | undefined {
+  return analysisCache.get(sessionId);
+}
+
+export function setAnalysis(sessionId: string, analysis: AIAnalysis): void {
+  analysisCache.set(sessionId, analysis);
+}
+
+export function getAnalysisStatus(sessionId: string): AnalysisStatus {
+  return analysisStatus.get(sessionId) ?? "not_started";
+}
+
+export function setAnalysisStatus(
+  sessionId: string,
+  status: AnalysisStatus
+): void {
+  analysisStatus.set(sessionId, status);
 }
 
 // ---------------------------------------------------------------------------

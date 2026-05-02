@@ -22,6 +22,8 @@ export interface Question {
   order: number;
   /** Whether this question is visible to players */
   published: boolean;
+  /** Whether this question is locked (no more votes accepted) */
+  locked: boolean;
   createdAt: string;
 }
 
@@ -52,11 +54,44 @@ export interface AIAnalysis {
     questionText: string;
     insight: string;
     recommendedVisualization: "bar" | "pie" | "donut" | "ranking" | "wordcloud" | "list";
+    /** Optional tone for presenter colour-coding */
+    tone?: "opportunity" | "risk" | "warning" | "neutral";
+    /** One-line headline */
+    headline?: string;
+    /** Winning pattern description */
+    winningPattern?: string;
+    /** Agreement level 0-100 */
+    agreementLevel?: number;
+    /** Controversy score 0-100 */
+    controversyScore?: number;
+    /** Key insights list */
+    keyInsights?: string[];
+    /** Automotive-specific interpretation */
+    automotiveInterpretation?: string;
+    /** Presenter talking point */
+    presenterTalkingPoint?: string;
+    /** Suggested follow-up question */
+    suggestedFollowUp?: string;
   }[];
   overallThemes: string[];
   sentiment: string;
   /** Infographic data cards for the dashboard */
   infographics: InfographicCard[];
+  /** Cumulative game pulse metrics */
+  pulse?: GamePulse;
+}
+
+/** Cumulative game pulse metrics */
+export interface GamePulse {
+  aiConfidenceScore: number;
+  opportunityIndex: number;
+  riskIndex: number;
+  governanceReadinessScore: number;
+  topOpportunities: string[];
+  topRisks: string[];
+  recommendedPilots: string[];
+  recommendedGuardrails: string[];
+  changedSinceLastQuestion?: string;
 }
 
 /** A single infographic data card rendered on the dashboard */
@@ -72,3 +107,6 @@ export interface InfographicCard {
 export interface PromptResult {
   response: string;
 }
+
+/** Analysis run status */
+export type AnalysisStatus = "not_started" | "running" | "complete" | "failed";
