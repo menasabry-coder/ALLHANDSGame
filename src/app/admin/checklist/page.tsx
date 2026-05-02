@@ -122,7 +122,11 @@ export default function ChecklistPage() {
         </Panel>
 
         {checkedCount === total && (
-          <div className="mt-4 rounded-xl border border-teal-700 bg-teal-900/20 px-5 py-4 text-center">
+          <div
+            className="mt-4 rounded-xl border border-teal-700 bg-teal-900/20 px-5 py-4 text-center"
+            role="status"
+            aria-live="polite"
+          >
             <p className="text-teal-300 font-semibold text-lg">
               ✅ All items checked — you&apos;re ready!
             </p>
