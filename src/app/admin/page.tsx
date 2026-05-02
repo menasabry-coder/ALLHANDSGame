@@ -153,6 +153,51 @@ export default function AdminPage() {
     }
   }
 
+  // Complete game
+  async function handleComplete() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/complete`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        showToast("Game completed!");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to complete game.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Trigger cumulative pulse analysis
+  async function handleTriggerAnalysis() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "cumulative_pulse" }),
+      });
+      if (res.ok) {
+        showToast("Cumulative pulse analysis triggered!");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to trigger analysis.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   // Reset session
   async function handleReset() {
     if (!selected) return;
@@ -423,6 +468,24 @@ export default function AdminPage() {
                     ▶ Start Game
                   </PrimaryButton>
 
+                  <PrimaryButton
+                    onClick={handleComplete}
+                    disabled={actionLoading || selected.status !== "active"}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    ✅ Complete Game
+                  </PrimaryButton>
+
+                  <PrimaryButton
+                    onClick={handleTriggerAnalysis}
+                    disabled={actionLoading || !selected}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    🔬 Trigger Analysis
+                  </PrimaryButton>
+
                   <a
                     href={`/presenter?sessionId=${selected.id}`}
                     target="_blank"
@@ -433,12 +496,28 @@ export default function AdminPage() {
                   </a>
 
                   <a
+                    href={`/report?sessionId=${selected.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📊 View Report
+                  </a>
+
+                  <a
                     href={`/join?code=${selected.code}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
                   >
                     🔗 Join Page (test)
+                  </a>
+
+                  <a
+                    href="/admin/checklist"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    ✔ Pre-Meeting Checklist
                   </a>
 
                   {!confirmReset ? (
@@ -488,6 +567,36 @@ export default function AdminPage() {
                   >
                     ↻ Refresh
                   </PrimaryButton>
+                </div>
+              </Panel>
+
+              {/* Export panel */}
+              <Panel title="Export" subtitle="Download session data" className="col-span-1">
+                <div className="space-y-3">
+                  <a
+                    href={`/api/sessions/${selected.id}/export?format=json`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📥 Export JSON
+                  </a>
+                  <a
+                    href={`/api/sessions/${selected.id}/export?format=csv`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📊 Export CSV
+                  </a>
+                  <a
+                    href={`/api/sessions/${selected.id}/export?format=markdown`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📝 Export Markdown
+                  </a>
                 </div>
               </Panel>
 
@@ -609,7 +718,7 @@ export default function AdminPage() {
         </div>
 
         <p className="text-center text-xs text-gray-700 mt-10">
-          Phase 4 & 5 — Activate questions one by one. Lock to stop responses and enable analysis.
+          Phase 8 &amp; 9 — Complete game, trigger analysis, and export reports.
         </p>
       </div>
     </AppShell>

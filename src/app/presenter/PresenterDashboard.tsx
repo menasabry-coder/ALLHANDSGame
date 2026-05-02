@@ -6,6 +6,7 @@ import Panel from "@/components/Panel";
 import QRCode from "@/components/QRCode";
 import { GAME_NAME, GAME_SUBTITLE, ROUNDS } from "@/config/gameConfig";
 import type { GameEvent, GameSessionDto } from "@/types/game";
+import type { CumulativePulseAnalysis, CurrentQuestionAnalysis } from "@/types/analysis";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,6 +267,10 @@ interface LocalAnalysis {
   dashboardCards?: AnalysisCardData[];
   confidence?: string;
   source?: string;
+  winningPattern?: CurrentQuestionAnalysis["winningPattern"];
+  automotiveInterpretation?: string;
+  suggestedFollowUpQuestion?: string;
+  keyInsights?: CurrentQuestionAnalysis["keyInsights"];
 }
 
 function AnalysisPanel({ analysis }: { analysis: LocalAnalysis }) {
@@ -274,6 +279,13 @@ function AnalysisPanel({ analysis }: { analysis: LocalAnalysis }) {
     if (tone === "risk") return "text-red-400";
     if (tone === "warning") return "text-amber-400";
     return "text-gray-300";
+  };
+
+  const insightBadgeClass = (severity: string) => {
+    if (severity === "opportunity") return "bg-green-900/40 text-green-300 border-green-700";
+    if (severity === "risk") return "bg-red-900/40 text-red-300 border-red-700";
+    if (severity === "warning") return "bg-amber-900/40 text-amber-300 border-amber-700";
+    return "bg-blue-900/40 text-blue-300 border-blue-700";
   };
 
   return (
@@ -300,6 +312,34 @@ function AnalysisPanel({ analysis }: { analysis: LocalAnalysis }) {
       {analysis.oneSentenceSummary && (
         <p className="text-xs text-gray-400">{analysis.oneSentenceSummary}</p>
       )}
+      {analysis.winningPattern?.explanation && (
+        <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+          <p className="text-xs font-semibold text-gray-400 mb-1">🏆 Winning pattern</p>
+          <p className="text-xs text-gray-300">{analysis.winningPattern.explanation}</p>
+        </div>
+      )}
+      {analysis.automotiveInterpretation && (
+        <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+          <p className="text-xs font-semibold text-gray-400 mb-1">🚗 Automotive context</p>
+          <p className="text-xs text-gray-300">{analysis.automotiveInterpretation}</p>
+        </div>
+      )}
+      {analysis.keyInsights && analysis.keyInsights.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 mb-2">💡 Key Insights</p>
+          <div className="flex flex-wrap gap-2">
+            {analysis.keyInsights.map((insight, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border px-3 py-2 text-xs max-w-sm ${insightBadgeClass(insight.severity)}`}
+              >
+                <p className="font-semibold">{insight.title}</p>
+                <p className="opacity-80 mt-0.5">{insight.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {analysis.dashboardCards && analysis.dashboardCards.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           {analysis.dashboardCards.map((card, i) => (
@@ -316,6 +356,149 @@ function AnalysisPanel({ analysis }: { analysis: LocalAnalysis }) {
           <p className="text-xs font-semibold text-gray-400 mb-1">🎤 Talking point</p>
           <p className="text-xs text-gray-300 italic">{analysis.presenterTalkingPoint}</p>
         </div>
+      )}
+      {analysis.suggestedFollowUpQuestion && (
+        <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-3 py-2">
+          <p className="text-xs font-semibold text-gray-400 mb-1">❓ Suggested follow-up</p>
+          <p className="text-xs text-gray-300 italic">{analysis.suggestedFollowUpQuestion}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cumulative Pulse Panel
+// ---------------------------------------------------------------------------
+
+function CumulativePulsePanel({ pulse }: { pulse: CumulativePulseAnalysis }) {
+  return (
+    <div className="rounded-xl border border-purple-800 bg-purple-950/20 p-5 space-y-5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">
+            🔮 Cumulative AI Pulse
+          </p>
+          <p className="text-lg font-semibold text-white">{pulse.headline}</p>
+        </div>
+        <span className={`text-xs px-2 py-0.5 rounded-full border ${
+          pulse.confidence === "high"
+            ? "border-green-700 text-green-400"
+            : pulse.confidence === "medium"
+            ? "border-amber-700 text-amber-400"
+            : "border-gray-700 text-gray-500"
+        }`}>
+          {pulse.confidence} confidence
+        </span>
+      </div>
+
+      {pulse.executiveSummary && (
+        <p className="text-sm text-gray-300 leading-relaxed">{pulse.executiveSummary}</p>
+      )}
+
+      {/* Score metrics */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-gray-900/60 rounded-xl p-3 border border-gray-800 text-center">
+          <p className="text-2xl font-extrabold text-teal-300">{pulse.aiConfidenceScore}</p>
+          <p className="text-xs text-gray-500 mt-0.5">AI Confidence</p>
+        </div>
+        <div className="bg-gray-900/60 rounded-xl p-3 border border-gray-800 text-center">
+          <p className="text-2xl font-extrabold text-green-300">{pulse.opportunityIndex}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Opportunity Index</p>
+        </div>
+        <div className="bg-gray-900/60 rounded-xl p-3 border border-gray-800 text-center">
+          <p className="text-2xl font-extrabold text-red-300">{pulse.riskIndex}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Risk Index</p>
+        </div>
+        <div className="bg-gray-900/60 rounded-xl p-3 border border-gray-800 text-center">
+          <p className="text-2xl font-extrabold text-blue-300">{pulse.governanceReadinessScore}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Governance</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Top Opportunities */}
+        {pulse.topOpportunities?.length > 0 && (
+          <div>
+            <p className="text-xs font-bold text-green-400 uppercase tracking-wider mb-2">
+              🚀 Top Opportunities
+            </p>
+            <div className="space-y-2">
+              {pulse.topOpportunities.slice(0, 3).map((o, i) => (
+                <div key={i} className="rounded-lg bg-green-900/20 border border-green-800/40 px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-green-300">{o.name}</p>
+                    <span className="text-xs text-green-500">{o.score}/100</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5 leading-snug">{o.whyItMatters}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Top Risks */}
+        {pulse.topRisks?.length > 0 && (
+          <div>
+            <p className="text-xs font-bold text-red-400 uppercase tracking-wider mb-2">
+              ⚠️ Top Risks
+            </p>
+            <div className="space-y-2">
+              {pulse.topRisks.slice(0, 3).map((r, i) => (
+                <div key={i} className="rounded-lg bg-red-900/20 border border-red-800/40 px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-red-300">{r.name}</p>
+                    <span className="text-xs text-red-500">{r.score}/100</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5 leading-snug">{r.whyItMatters}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Pilots */}
+      {pulse.recommendedPilots?.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">
+            🧪 Recommended Pilots
+          </p>
+          <div className="space-y-2">
+            {pulse.recommendedPilots.slice(0, 3).map((p, i) => (
+              <div key={i} className="rounded-lg bg-blue-900/10 border border-blue-800/30 px-3 py-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs font-semibold text-blue-300">{p.title}</p>
+                  <span className="text-xs text-blue-500">{p.timeHorizon.replace("_", " ")}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">{p.firstStep}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Guardrails */}
+      {pulse.recommendedGuardrails?.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2">
+            🛡️ Guardrails
+          </p>
+          <ul className="space-y-1">
+            {pulse.recommendedGuardrails.slice(0, 5).map((g, i) => (
+              <li key={i} className="text-xs text-gray-300 flex gap-2">
+                <span className="text-amber-500 shrink-0">•</span>
+                <span>{g}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {pulse.changedSinceLastQuestion && (
+        <p className="text-xs text-purple-400 italic border-t border-gray-800 pt-3">
+          📈 {pulse.changedSinceLastQuestion}
+        </p>
       )}
     </div>
   );
@@ -343,6 +526,7 @@ export default function PresenterDashboard({
   const [liveQuestion, setLiveQuestion] = useState<LiveQuestion | null>(null);
   const [lockedQuestion, setLockedQuestion] = useState<LiveQuestion | null>(null);
   const [currentAnalysis, setCurrentAnalysis] = useState<LocalAnalysis | null>(null);
+  const [cumulativePulse, setCumulativePulse] = useState<CumulativePulseAnalysis | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   // Compute join URL once we have the session code
@@ -421,9 +605,28 @@ export default function PresenterDashboard({
     [sessionId]
   );
 
+  // Fetch latest cumulative pulse analysis
+  const fetchCumulativePulse = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const res = await fetch(
+        `/api/sessions/${sessionId}/analyze?type=cumulative_pulse`
+      );
+      if (res.ok) {
+        const data = await res.json() as { results: Array<{ payload: CumulativePulseAnalysis }> };
+        if (data.results[0]?.payload) {
+          setCumulativePulse(data.results[0].payload);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [sessionId]);
+
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]);
+    fetchCumulativePulse();
+  }, [fetchStats, fetchCumulativePulse]);
 
   // SSE subscription
   useEffect(() => {
@@ -507,6 +710,10 @@ export default function PresenterDashboard({
             fetchAnalysis(p.questionId);
           }
         }
+
+        if (event.type === "analysis:cumulative-pulse-ready") {
+          fetchCumulativePulse();
+        }
       } catch {
         // ignore
       }
@@ -515,7 +722,7 @@ export default function PresenterDashboard({
     return () => {
       es.close();
     };
-  }, [sessionId, fetchStats, fetchLiveQuestion, fetchAnalysis]);
+  }, [sessionId, fetchStats, fetchLiveQuestion, fetchAnalysis, fetchCumulativePulse]);
 
   // When session loads, load live question if one is active
   useEffect(() => {
@@ -674,6 +881,9 @@ export default function PresenterDashboard({
           <DistributionBars data={stats.byUsage} colorClass="bg-purple-500" />
         </Panel>
       </div>
+
+      {/* Cumulative pulse analysis */}
+      {cumulativePulse && <CumulativePulsePanel pulse={cumulativePulse} />}
 
       {/* Footer hint */}
       <p className="text-center text-xs text-gray-700 mt-auto">
