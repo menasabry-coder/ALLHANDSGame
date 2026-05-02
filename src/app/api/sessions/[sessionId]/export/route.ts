@@ -8,7 +8,7 @@ interface Params {
 
 function csvEscape(val: unknown): string {
   const s = val === null || val === undefined ? "" : String(val);
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
