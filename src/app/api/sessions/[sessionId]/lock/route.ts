@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: Params) {
 
   const body = await request.json();
   const questionId: string | undefined = body?.questionId;
-  const locked: boolean = body?.locked !== false; // default true
+  const locked: boolean = body?.locked ?? true; // default to locking
 
   if (!questionId) {
     return NextResponse.json(

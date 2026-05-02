@@ -190,6 +190,8 @@ Total votes: ${q.totalVotes}`;
         { role: "user", content: userPrompt },
       ],
       temperature: 0.7,
+      // Increased from 3000 to accommodate the expanded analysis fields
+      // (headline, tone, winningPattern, keyInsights, pulse, etc.)
       max_tokens: 4000,
     });
 
