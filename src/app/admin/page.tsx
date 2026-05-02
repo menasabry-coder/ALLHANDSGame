@@ -162,12 +162,22 @@ export default function AdminPage() {
     flash(locked ? "🔒 Question locked" : "🔓 Question unlocked");
   };
 
-  const publishAction = async (mode: "all" | "next" | "one", questionId?: string) => {
+  const publishAction = async (mode: "all" | "next") => {
     if (!selectedSession) return;
     await fetch(`/api/sessions/${selectedSession.id}/publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, questionId }),
+      body: JSON.stringify({ mode }),
+    });
+    fetchQuestions(selectedSession.id);
+  };
+
+  const publishOne = async (questionId: string) => {
+    if (!selectedSession) return;
+    await fetch(`/api/sessions/${selectedSession.id}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "one", questionId }),
     });
     fetchQuestions(selectedSession.id);
   };
@@ -395,7 +405,7 @@ export default function AdminPage() {
                       <div className="flex items-center gap-2 shrink-0 ml-2">
                         {!q.published && (
                           <button
-                            onClick={() => publishAction("one", q.id)}
+                            onClick={() => publishOne(q.id)}
                             className="text-xs px-2 py-1 rounded-full bg-indigo-700 hover:bg-indigo-600 text-white transition"
                           >
                             Publish

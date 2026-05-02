@@ -150,10 +150,8 @@ export default function PlayPage() {
       ? activeQuestion
       : currentQuestion;
 
-  // Check if active question is locked
-  const activeIsLocked = activeQuestion && "locked" in activeQuestion
-    ? (activeQuestion as QuestionWithResults & { locked?: boolean }).locked
-    : false;
+  // Check if active question is locked (locked field comes from Question via QuestionWithResults)
+  const activeIsLocked = activeQuestion?.locked ?? false;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex flex-col">

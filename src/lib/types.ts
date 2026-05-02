@@ -45,7 +45,6 @@ export interface QuestionWithResults extends Question {
   /** Free-text answers (only populated for freetext questions) */
   freeTextAnswers: string[];
 }
-
 /** AI-generated analysis of a session's questions and answers */
 export interface AIAnalysis {
   summary: string;
