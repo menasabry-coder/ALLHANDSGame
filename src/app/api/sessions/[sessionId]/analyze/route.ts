@@ -1,15 +1,55 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
-import {
-  getSession,
-  listQuestions,
-  getQuestionResults,
-  getParticipantCount,
-} from "@/lib/store";
+import { prisma } from "@/lib/prisma";
 import type { AIAnalysis } from "@/lib/types";
 
 interface Params {
   params: Promise<{ sessionId: string }>;
+}
+
+/**
+ * GET /api/sessions/[sessionId]/analyze
+ *
+ * Returns the most recent AnalysisResult records for this session.
+ * Query params:
+ *   ?type=current_question  — latest per-question analysis
+ *   ?type=cumulative_pulse  — latest cumulative pulse
+ *   ?questionId=<id>        — filter to a specific question (for current_question type)
+ */
+export async function GET(request: Request, { params }: Params) {
+  const { sessionId } = await params;
+  const url = new URL(request.url);
+  const type = url.searchParams.get("type");
+  const questionId = url.searchParams.get("questionId");
+
+  const session = await prisma.gameSession.findUnique({
+    where: { id: sessionId },
+  });
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
+
+  const where = {
+    sessionId,
+    ...(type ? { analysisType: type } : {}),
+    ...(questionId ? { questionId } : {}),
+  };
+
+  const results = await prisma.analysisResult.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: type === "cumulative_pulse" ? 1 : 50,
+  });
+
+  const parsed = results.map((r) => {
+    try {
+      return { ...r, payload: JSON.parse(r.payload) };
+    } catch {
+      return r;
+    }
+  });
+
+  return NextResponse.json({ sessionId, results: parsed });
 }
 
 /**
@@ -31,42 +71,114 @@ export async function POST(_request: Request, { params }: Params) {
     );
   }
 
-  const session = getSession(sessionId);
+  // Fetch session and participant count from Prisma
+  const session = await prisma.gameSession.findUnique({
+    where: { id: sessionId },
+    include: { _count: { select: { participants: true } } },
+  });
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const questions = listQuestions(sessionId);
-  if (questions.length === 0) {
+  const participantCount = session._count.participants;
+
+  // Fetch all responses for this session, with question + option details
+  const responses = await prisma.response.findMany({
+    where: { sessionId },
+    include: {
+      question: {
+        include: { options: { orderBy: { order: "asc" } } },
+      },
+    },
+  });
+
+  if (responses.length === 0) {
     return NextResponse.json(
-      { error: "No questions in this session to analyze" },
+      { error: "No responses found in this session to analyze" },
       { status: 400 }
     );
   }
 
-  const participantCount = getParticipantCount(sessionId);
+  // Group responses by question and build tally/free-text lists
+  const questionMap = new Map<
+    string,
+    {
+      question: (typeof responses)[0]["question"];
+      tally: Record<string, number>;
+      freeTexts: string[];
+      totalVotes: number;
+    }
+  >();
 
-  // Build results data for every question
-  const questionsWithResults = questions.map((q) => {
-    const results = getQuestionResults(q.id);
-    return {
-      id: q.id,
-      text: q.text,
-      type: q.type,
-      options: q.options,
-      order: q.order,
-      votes: results?.votes ?? {},
-      totalVotes: results?.totalVotes ?? 0,
-      freeTextAnswers: results?.freeTextAnswers ?? [],
-    };
-  });
+  for (const r of responses) {
+    if (!questionMap.has(r.questionId)) {
+      questionMap.set(r.questionId, {
+        question: r.question,
+        tally: {},
+        freeTexts: [],
+        totalVotes: 0,
+      });
+    }
+    const entry = questionMap.get(r.questionId)!;
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(r.payload) as Record<string, unknown>;
+    } catch {
+      // malformed payload — skip
+    }
+
+    if (
+      r.question.questionType === "single_choice" ||
+      r.question.questionType === "multi_select"
+    ) {
+      const ids = (payload.selectedOptionIds as string[]) ?? [];
+      for (const id of ids) {
+        entry.tally[id] = (entry.tally[id] ?? 0) + 1;
+      }
+      entry.totalVotes += 1;
+    } else if (r.question.questionType === "free_text") {
+      if (typeof payload.freeText === "string" && payload.freeText) {
+        entry.freeTexts.push(payload.freeText);
+      }
+      entry.totalVotes += 1;
+    } else {
+      entry.totalVotes += 1;
+    }
+  }
+
+  // Build the questions-with-results array used for analysis
+  const optionLabelById = (opts: { id: string; label: string }[]) =>
+    Object.fromEntries(opts.map((o) => [o.id, o.label]));
+
+  const questionsWithResults = Array.from(questionMap.values())
+    .sort((a, b) => a.question.order - b.question.order)
+    .map(({ question: q, tally, freeTexts, totalVotes }) => {
+      const labelById = optionLabelById(q.options);
+      // Convert option-id tally → label tally for the prompt
+      const labelTally = Object.fromEntries(
+        Object.entries(tally).map(([id, n]) => [labelById[id] ?? id, n])
+      );
+      return {
+        id: q.id,
+        text: q.title,
+        type: q.questionType,
+        options: q.options.map((o) => o.label),
+        order: q.order,
+        votes: labelTally,
+        totalVotes,
+        freeTextAnswers: freeTexts,
+      };
+    });
 
   // ---- Step 1: Generate embeddings for each question text ----
   const embeddingTexts = questionsWithResults.map((q) => {
-    if (q.type === "freetext") {
+    if (q.type === "free_text") {
       return `Question: ${q.text}\nFree-text answers: ${q.freeTextAnswers.join("; ") || "(none)"}`;
     }
-    return `Question: ${q.text}\nOptions: ${q.options.join(", ")}\nVote distribution: ${q.options.map((opt, i) => `${opt}: ${q.votes[i] ?? 0}`).join(", ")}`;
+    const voteLines = q.options
+      .map((opt) => `${opt}: ${q.votes[opt] ?? 0}`)
+      .join(", ");
+    return `Question: ${q.text}\nOptions: ${q.options.join(", ")}\nVote distribution: ${voteLines}`;
   });
 
   let embeddingData: number[][] = [];
@@ -103,6 +215,14 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   // ---- Step 3: Chat completion to produce the analysis ----
+  const body = (await _request.json().catch(() => ({}))) as { modelType?: string };
+  const modelType = body.modelType || "standard";
+  
+  const isReasoning = modelType === "reasoning";
+  const analysisModel = isReasoning 
+    ? (process.env.OPENAI_REASONING_MODEL || "o1-mini")
+    : (process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o");
+
   const systemPrompt = `You are an expert data analyst for live polling sessions at engineering all-hands meetings.
 You will be given the questions (MCQ and free-text), their answer options/responses, and the voting results.
 Total participants in the session: ${participantCount}
@@ -142,30 +262,34 @@ For recommendedVisualization:
 
 For infographics: Generate 3-6 insightful data cards that would make a great infographic dashboard. Examples: participation rate, most popular answer, consensus level, engagement score, etc.`;
 
-  const userPrompt = `Session: "${session.name}"
+  const userPrompt = `Session: "${session.title}"
 Total participants: ${participantCount}
 
 ${questionsWithResults.map((q) => {
-  if (q.type === "freetext") {
+  if (q.type === "free_text") {
     return `Question ${q.order} (Free Text): "${q.text}"
 Answers (${q.freeTextAnswers.length} of ${participantCount} participants):
 ${q.freeTextAnswers.map((a) => `  - "${a}"`).join("\n") || "  (no answers yet)"}`;
   }
-  return `Question ${q.order} (MCQ): "${q.text}"
+  return `Question ${q.order} (${q.type}): "${q.text}"
 Options & Votes:
-${q.options.map((opt, i) => `  - ${opt}: ${q.votes[i] ?? 0} votes (${participantCount > 0 ? Math.round(((q.votes[i] ?? 0) / participantCount) * 100) : 0}% of participants)`).join("\n")}
+${q.options.map((opt) => `  - ${opt}: ${q.votes[opt] ?? 0} votes (${participantCount > 0 ? Math.round(((q.votes[opt] ?? 0) / participantCount) * 100) : 0}% of participants)`).join("\n")}
 Total votes: ${q.totalVotes}`;
 }).join("\n\n")}`;
 
   try {
     const chatRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 3000,
+      model: analysisModel,
+      messages: isReasoning 
+        ? [
+            { role: "developer", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ]
+        : [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+      ...(isReasoning ? { max_completion_tokens: 3000 } : { temperature: 0.7, max_tokens: 3000 }),
     });
 
     const raw = chatRes.choices[0]?.message?.content?.trim() ?? "";

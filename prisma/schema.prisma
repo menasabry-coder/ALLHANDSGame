@@ -1,0 +1,100 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model GameSession {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  title            String
+  /// draft | active | completed
+  status           String   @default("draft")
+  activeRoundId    String?
+  activeQuestionId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  participants Participant[]
+  responses    Response[]
+  analyses     AnalysisResult[]
+}
+
+model Participant {
+  id              String   @id @default(cuid())
+  sessionId       String
+  engineeringArea String   @default("")
+  experienceLevel String   @default("")
+  aiUsageLevel    String   @default("")
+  aiAttitude      String   @default("")
+  teamAlias       String?
+  persona         String?
+  createdAt       DateTime @default(now())
+
+  session   GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  responses Response[]
+}
+
+model Question {
+  id           String   @id
+  roundId      String
+  order        Int
+  title        String
+  prompt       String
+  /// single_choice | multi_select | allocation | matrix | free_text
+  questionType String   @default("single_choice")
+  isActive     Boolean  @default(false)
+  isLocked     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  options   QuestionOption[]
+  responses Response[]
+}
+
+model QuestionOption {
+  id          String  @id
+  questionId  String
+  label       String
+  description String?
+  category    String?
+  severity    String?
+  riskLevel   String?
+  order       Int
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model Response {
+  id            String   @id @default(cuid())
+  sessionId     String
+  participantId String
+  questionId    String
+  /// JSON payload — structure depends on questionType
+  payload       String   @default("{}")
+  createdAt     DateTime @default(now())
+
+  session     GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  question    Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, questionId])
+}
+
+model AnalysisResult {
+  id           String   @id @default(cuid())
+  sessionId    String
+  questionId   String?
+  /// current_question | cumulative_pulse | final_report
+  analysisType String
+  /// JSON payload returned by the analysis engine
+  payload      String   @default("{}")
+  createdAt    DateTime @default(now())
+
+  session GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}

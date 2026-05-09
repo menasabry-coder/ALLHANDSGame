@@ -17,6 +17,7 @@ const COLOR_MAP: Record<InfographicCard["color"], string> = {
 };
 
 export default function AIInsights({ sessionId }: Props) {
+  const [modelType, setModelType] = useState<"standard" | "reasoning">("standard");
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,8 @@ export default function AIInsights({ sessionId }: Props) {
     try {
       const res = await fetch(`/api/sessions/${sessionId}/analyze`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelType }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -49,9 +52,22 @@ export default function AIInsights({ sessionId }: Props) {
   return (
     <section className="max-w-2xl mx-auto mt-10">
       <div className="bg-gray-800/70 rounded-2xl p-6 border border-purple-700/50">
-        <div className="flex items-center gap-3 mb-4">
-          <span className="text-2xl">🤖</span>
-          <h2 className="text-xl font-bold">AI Analysis</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🤖</span>
+            <h2 className="text-xl font-bold">AI Analysis</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Model</label>
+            <select
+              value={modelType}
+              onChange={(e) => setModelType(e.target.value as "standard" | "reasoning")}
+              className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-purple-500"
+            >
+              <option value="standard">Standard (GPT-4o)</option>
+              <option value="reasoning">Reasoning (o1-mini)</option>
+            </select>
+          </div>
         </div>
 
         {!analysis && !loading && (

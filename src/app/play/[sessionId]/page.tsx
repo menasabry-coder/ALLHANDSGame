@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import VoteButtons from "@/components/VoteButtons";
-import ResultsChart from "@/components/ResultsChart";
 import type { Session, QuestionWithResults } from "@/lib/types";
 
 export default function PlayPage() {
@@ -139,7 +138,6 @@ export default function PlayPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6 flex flex-col items-center">
       <h1 className="text-2xl font-bold mb-1">{session.name}</h1>
-      <p className="text-gray-500 text-sm mb-2">Player View</p>
       <p className="text-xs text-purple-400 mb-6 bg-purple-900/30 px-3 py-1 rounded-full border border-purple-700/50">
         🤖 This game is autonomous — questions appear automatically
       </p>
@@ -156,17 +154,7 @@ export default function PlayPage() {
       {session.status === "finished" && (
         <div className="text-center mt-20">
           <p className="text-3xl">&#127937;</p>
-          <p className="text-gray-400 mt-4">This session has ended.</p>
-          <div className="mt-8 w-full max-w-lg space-y-6">
-            {questions.map((q) => (
-              <div key={q.id} className="bg-gray-800 rounded-xl p-4">
-                <h3 className="font-semibold mb-3">
-                  Q{q.order}: {q.text}
-                </h3>
-                <ResultsChart question={q} />
-              </div>
-            ))}
-          </div>
+          <p className="text-gray-400 mt-4">This session has ended. Thank you for participating!</p>
         </div>
       )}
 
@@ -184,10 +172,9 @@ export default function PlayPage() {
 
             {voted.has(displayQuestion.id) ? (
               <div>
-                <p className="text-green-400 font-semibold text-center mb-4">
-                  Answer recorded!
+                <p className="text-green-400 font-semibold text-center py-6">
+                  ✅ Answer recorded! Waiting for the next question.
                 </p>
-                <ResultsChart question={displayQuestion} />
               </div>
             ) : displayQuestion.type === "freetext" ? (
               <div className="space-y-3">

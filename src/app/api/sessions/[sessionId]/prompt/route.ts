@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
-import {
-  getSession,
-  listQuestions,
-  getQuestionResults,
-  getParticipantCount,
-} from "@/lib/store";
+import { prisma } from "@/lib/prisma";
 
 interface Params {
   params: Promise<{ sessionId: string }>;
@@ -30,7 +25,11 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const session = getSession(sessionId);
+  // Fetch session and participant count from Prisma
+  const session = await prisma.gameSession.findUnique({
+    where: { id: sessionId },
+    include: { _count: { select: { participants: true } } },
+  });
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
@@ -45,39 +44,101 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  const participantCount = getParticipantCount(sessionId);
-  const questions = listQuestions(sessionId);
-  const questionsWithResults = questions.map((q) => {
-    const results = getQuestionResults(q.id);
-    return {
-      text: q.text,
-      type: q.type,
-      options: q.options,
-      order: q.order,
-      votes: results?.votes ?? {},
-      totalVotes: results?.totalVotes ?? 0,
-      freeTextAnswers: results?.freeTextAnswers ?? [],
-    };
+  const participantCount = session._count.participants;
+
+  // Fetch all responses with question + option data
+  const responses = await prisma.response.findMany({
+    where: { sessionId },
+    include: {
+      question: {
+        include: { options: { orderBy: { order: "asc" } } },
+      },
+    },
   });
 
-  const contextBlock = `Session: "${session.name}"
+  // Aggregate by question
+  const questionMap = new Map<
+    string,
+    {
+      question: (typeof responses)[0]["question"];
+      tally: Record<string, number>;
+      freeTexts: string[];
+      totalVotes: number;
+    }
+  >();
+
+  for (const r of responses) {
+    if (!questionMap.has(r.questionId)) {
+      questionMap.set(r.questionId, {
+        question: r.question,
+        tally: {},
+        freeTexts: [],
+        totalVotes: 0,
+      });
+    }
+    const entry = questionMap.get(r.questionId)!;
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(r.payload) as Record<string, unknown>;
+    } catch {
+      // malformed — skip
+    }
+
+    if (
+      r.question.questionType === "single_choice" ||
+      r.question.questionType === "multi_select"
+    ) {
+      const ids = (payload.selectedOptionIds as string[]) ?? [];
+      for (const id of ids) {
+        entry.tally[id] = (entry.tally[id] ?? 0) + 1;
+      }
+    } else if (r.question.questionType === "free_text") {
+      if (typeof payload.freeText === "string" && payload.freeText) {
+        entry.freeTexts.push(payload.freeText);
+      }
+    }
+    entry.totalVotes += 1;
+  }
+
+  const questionsWithResults = Array.from(questionMap.values())
+    .sort((a, b) => a.question.order - b.question.order)
+    .map(({ question: q, tally, freeTexts, totalVotes }) => {
+      const labelById = Object.fromEntries(q.options.map((o) => [o.id, o.label]));
+      return {
+        order: q.order,
+        text: q.title,
+        type: q.questionType,
+        options: q.options.map((o) => o.label),
+        tally,
+        labelById,
+        freeTexts,
+        totalVotes,
+      };
+    });
+
+  const contextBlock = `Session: "${session.title}"
 Total participants: ${participantCount}
 
 ${questionsWithResults.map((q) => {
-  if (q.type === "mcq") {
-    return `Question ${q.order} (MCQ): "${q.text}"
-Options & Votes:
-${q.options.map((opt, i) => `  - ${opt}: ${q.votes[i] ?? 0} votes (${participantCount > 0 ? Math.round(((q.votes[i] ?? 0) / participantCount) * 100) : 0}% of participants)`).join("\n")}
-Total votes: ${q.totalVotes}`;
+  if (q.type === "free_text") {
+    return `Question ${q.order} (Free Text): "${q.text}"
+Answers (${q.freeTexts.length}):
+${q.freeTexts.map((a) => `  - "${a}"`).join("\n") || "  (no answers yet)"}`;
   }
-  return `Question ${q.order} (Free Text): "${q.text}"
-Answers (${q.freeTextAnswers.length}):
-${q.freeTextAnswers.map((a) => `  - "${a}"`).join("\n") || "  (no answers yet)"}`;
+  return `Question ${q.order} (${q.type}): "${q.text}"
+Options & Votes:
+${q.options.map((opt) => {
+  const optId = Object.entries(q.labelById).find(([, l]) => l === opt)?.[0] ?? "";
+  const votes = q.tally[optId] ?? 0;
+  const pct = participantCount > 0 ? Math.round((votes / participantCount) * 100) : 0;
+  return `  - ${opt}: ${votes} votes (${pct}% of participants)`;
+}).join("\n")}
+Total votes: ${q.totalVotes}`;
 }).join("\n\n")}`;
 
   try {
     const chatRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1",
       messages: [
         {
           role: "system",

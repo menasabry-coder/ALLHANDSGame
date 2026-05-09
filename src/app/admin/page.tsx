@@ -1,419 +1,896 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import QRCode from "@/components/QRCode";
-import type { Session, Question, QuestionType } from "@/lib/types";
+import { useCallback, useEffect, useState } from "react";
+import AppShell from "@/components/AppShell";
+import Panel from "@/components/Panel";
+import PrimaryButton from "@/components/PrimaryButton";
+import RoleBadge from "@/components/RoleBadge";
+import SystemResourcePanel from "@/components/SystemResourcePanel";
+import { ROUNDS } from "@/config/gameConfig";
+import type { GameSessionDto } from "@/types/game";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface QuestionRow {
+  id: string;
+  roundId: string;
+  order: number;
+  title: string;
+  questionType: string;
+  isActive: boolean;
+  isLocked: boolean;
+  responseCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Admin page
+// ---------------------------------------------------------------------------
 
 export default function AdminPage() {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [sessions, setSessions] = useState<GameSessionDto[]>([]);
+  const [selected, setSelected] = useState<GameSessionDto | null>(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [confirmReset, setConfirmReset] = useState(false);
 
-  // New session form
-  const [newName, setNewName] = useState("");
+  // Round/question control
+  const [activeRoundTab, setActiveRoundTab] = useState<string>(ROUNDS[0].id);
+  const [roundQuestions, setRoundQuestions] = useState<QuestionRow[]>([]);
+  const [questionLoading, setQuestionLoading] = useState(false);
+  const [customQuestionTitle, setCustomQuestionTitle] = useState("");
+  const [customQuestionPrompt, setCustomQuestionPrompt] = useState("");
+  const [customQuestionType, setCustomQuestionType] = useState<
+    "single_choice" | "free_text"
+  >("single_choice");
+  const [customQuestionOptions, setCustomQuestionOptions] = useState(
+    "Option 1\nOption 2"
+  );
 
-  // New question form
-  const [qText, setQText] = useState("");
-  const [qType, setQType] = useState<QuestionType>("mcq");
-  const [qOptions, setQOptions] = useState(["", ""]);
-
-  // ------- Fetch helpers -------
-  const fetchSessions = useCallback(async () => {
-    const res = await fetch("/api/sessions");
-    setSessions(await res.json());
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sessions");
+      if (res.ok) {
+        const data: GameSessionDto[] = await res.json();
+        setSessions(data);
+        setSelected((prev) => (prev ? prev : data.length === 1 ? data[0] : null));
+      }
+    } catch {
+      setError("Could not load sessions.");
+    }
   }, []);
 
-  const fetchQuestions = useCallback(async (sid: string) => {
-    const res = await fetch(`/api/sessions/${sid}/questions?all=true`);
-    const data = await res.json();
-    setQuestions(data.questions ?? []);
-    if (data.session) setSelectedSession(data.session);
-  }, []);
-
+  // Fetch sessions on mount
   useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      if (!cancelled) fetchSessions();
-    };
-    const iv = setInterval(load, 3000);
-    // immediate load via zero-delay timeout (avoids sync setState in effect)
-    const t = setTimeout(load, 0);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-      clearTimeout(t);
-    };
-  }, [fetchSessions]);
+    loadSessions();
+  }, [loadSessions]);
+  async function refreshSelected(id: string) {
+    const res = await fetch(`/api/sessions/${id}`);
+    if (res.ok) {
+      const s: GameSessionDto = await res.json();
+      setSelected(s);
+      setSessions((prev) => prev.map((x) => (x.id === s.id ? s : x)));
+    }
+  }
 
+  const loadRoundQuestions = useCallback(
+    async (sessionId: string, roundId: string) => {
+      setQuestionLoading(true);
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/round-questions?roundId=${roundId}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setRoundQuestions(data.questions ?? []);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setQuestionLoading(false);
+      }
+    },
+    []
+  );
+
+  // Reload questions when session or round tab changes
   useEffect(() => {
-    if (!selectedSession) return;
-    let cancelled = false;
-    const load = () => {
-      if (!cancelled) fetchQuestions(selectedSession.id);
-    };
-    const iv = setInterval(load, 3000);
-    const t = setTimeout(load, 0);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-      clearTimeout(t);
-    };
-  }, [selectedSession, fetchQuestions]);
+    if (selected) {
+      loadRoundQuestions(selected.id, activeRoundTab);
+    }
+  }, [selected, activeRoundTab, loadRoundQuestions]);
 
-  // ------- Actions -------
-  const createSession = async () => {
-    if (!newName.trim()) return;
-    const res = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim() }),
-    });
-    const session = await res.json();
-    setNewName("");
-    setSessions((prev) => [session, ...prev]);
-    setSelectedSession(session);
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 3000);
+  }
+
+  // Create new session
+  async function handleCreate() {
+    if (!newTitle.trim()) {
+      setError("Enter a session title.");
+      return;
+    }
+    setCreateLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error ?? "Failed to create session.");
+        return;
+      }
+      const s: GameSessionDto = await res.json();
+      setSessions((prev) => [s, ...prev]);
+      setSelected(s);
+      setNewTitle("");
+      showToast(`Session created: ${s.code}`);
+    } catch {
+      setError("Network error.");
+    } finally {
+      setCreateLoading(false);
+    }
+  }
+
+  // Start game
+  async function handleStart() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/start`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        showToast("Game started!");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to start game.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Complete game
+  async function handleComplete() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/complete`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        showToast("Game completed!");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to complete game.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Trigger cumulative pulse analysis
+  async function handleTriggerAnalysis() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "cumulative_pulse" }),
+      });
+      if (res.ok) {
+        showToast("Cumulative pulse analysis triggered!");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to trigger analysis.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Reset session
+  async function handleReset() {
+    if (!selected) return;
+    setConfirmReset(false);
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/reset`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        setRoundQuestions([]);
+        showToast("Session reset to draft.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to reset.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Copy session code
+  function handleCopyCode() {
+    if (!selected) return;
+    navigator.clipboard
+      .writeText(selected.code)
+      .then(() => showToast(`Copied: ${selected.code}`))
+      .catch(() => showToast("Could not copy to clipboard."));
+  }
+
+  // Activate a question
+  async function handleActivateQuestion(questionId: string) {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(
+        `/api/sessions/${selected.id}/active-question`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionId }),
+        }
+      );
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        await loadRoundQuestions(selected.id, activeRoundTab);
+        showToast("Question activated.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to activate question.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Deactivate active question (clear)
+  async function handleClearQuestion() {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      await fetch(`/api/sessions/${selected.id}/active-question`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionId: null }),
+      });
+      await refreshSelected(selected.id);
+      await loadRoundQuestions(selected.id, activeRoundTab);
+      showToast("Active question cleared.");
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Lock a question
+  async function handleLockQuestion(questionId: string) {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/questions/${questionId}/lock`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        await loadRoundQuestions(selected.id, activeRoundTab);
+        showToast("Question locked — no more submissions.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to lock question.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleUnlockQuestion(questionId: string) {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/questions/${questionId}/unlock`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await refreshSelected(selected.id);
+        await loadRoundQuestions(selected.id, activeRoundTab);
+        showToast("Question unlocked.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to unlock question.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleCreateCustomQuestion() {
+    if (!selected) return;
+
+    const title = customQuestionTitle.trim();
+    const prompt = customQuestionPrompt.trim();
+    const options = customQuestionOptions
+      .split("\n")
+      .map((o) => o.trim())
+      .filter(Boolean);
+
+    if (!title) {
+      setError("Enter a custom question title.");
+      return;
+    }
+    if (customQuestionType === "single_choice" && options.length < 2) {
+      setError("MCQ requires at least 2 options (one per line).");
+      return;
+    }
+
+    setActionLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/round-questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roundId: activeRoundTab,
+          title,
+          prompt: prompt || title,
+          questionType: customQuestionType,
+          options,
+        }),
+      });
+      if (res.ok) {
+        setCustomQuestionTitle("");
+        setCustomQuestionPrompt("");
+        setCustomQuestionType("single_choice");
+        setCustomQuestionOptions("Option 1\nOption 2");
+        await loadRoundQuestions(selected.id, activeRoundTab);
+        showToast("Custom question added.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to add custom question.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/admin/logout", { method: "POST" });
+      window.location.href = "/admin/login";
+    } catch {
+      setError("Could not log out.");
+    }
+  }
+
+  const questionTypeLabel: Record<string, string> = {
+    single_choice: "Single choice",
+    multi_select: "Multi-select",
+    allocation: "Allocation",
+    matrix: "Matrix",
+    free_text: "Free text",
   };
-
-  const addQuestion = async () => {
-    if (!selectedSession || !qText.trim()) return;
-    if (qType === "mcq" && qOptions.some((o) => !o.trim())) return;
-
-    await fetch(`/api/sessions/${selectedSession.id}/questions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: qText.trim(),
-        type: qType,
-        ...(qType === "mcq"
-          ? { options: qOptions.map((o) => o.trim()) }
-          : {}),
-      }),
-    });
-    setQText("");
-    setQType("mcq");
-    setQOptions(["", ""]);
-    fetchQuestions(selectedSession.id);
-  };
-
-  const activateQuestion = async (questionId: string | null) => {
-    if (!selectedSession) return;
-    await fetch(`/api/sessions/${selectedSession.id}/activate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questionId }),
-    });
-    fetchQuestions(selectedSession.id);
-  };
-
-  const publishAction = async (mode: "all" | "next", questionId?: string) => {
-    if (!selectedSession) return;
-    await fetch(`/api/sessions/${selectedSession.id}/publish`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode, questionId }),
-    });
-    fetchQuestions(selectedSession.id);
-  };
-
-  const unpublishedCount = questions.filter((q) => !q.published).length;
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-6">
-      <h1 className="text-3xl font-bold mb-6">🛠 Admin Panel</h1>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Column 1: Sessions */}
-        <section>
-          <h2 className="text-xl font-semibold mb-3">Sessions</h2>
-
-          {/* Create session */}
-          <div className="flex gap-2 mb-4">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Session name"
-              className="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-              onKeyDown={(e) => e.key === "Enter" && createSession()}
-            />
-            <button
-              onClick={createSession}
-              className="bg-blue-600 hover:bg-blue-500 rounded-lg px-4 py-2 text-sm font-semibold transition"
-            >
-              Create
-            </button>
+    <AppShell>
+      <div className="p-6 max-w-6xl mx-auto w-full">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold">Admin Control</h1>
+          <div className="flex items-center gap-3">
+            <RoleBadge role="Admin" />
+            <PrimaryButton size="sm" variant="secondary" onClick={handleLogout}>
+              Log out
+            </PrimaryButton>
           </div>
+        </div>
+
+        {/* Toast */}
+        {toast && (
+          <div className="fixed top-4 right-4 z-50 bg-green-700 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">
+            {toast}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Create session */}
+          <Panel title="Create Session" subtitle="Start a new AI Arena game session">
+            <div className="space-y-3">
+              <input
+                type="text"
+                placeholder="Session title, e.g. All-Hands Q2 2026"
+                value={newTitle}
+                onChange={(e) => {
+                  setNewTitle(e.target.value);
+                  setError("");
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+                className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600"
+                disabled={createLoading}
+              />
+              {error && <p className="text-red-400 text-xs">{error}</p>}
+              <PrimaryButton
+                onClick={handleCreate}
+                disabled={createLoading}
+                className="w-full"
+              >
+                {createLoading ? "Creating…" : "+ Create Session"}
+              </PrimaryButton>
+            </div>
+          </Panel>
 
           {/* Session list */}
-          <ul className="space-y-2">
-            {sessions.map((s) => (
-              <li
-                key={s.id}
-                onClick={() => setSelectedSession(s)}
-                className={`cursor-pointer rounded-lg px-4 py-3 transition ${
-                  selectedSession?.id === s.id
-                    ? "bg-blue-900/40 border border-blue-600"
-                    : "bg-gray-800 hover:bg-gray-700"
-                }`}
-              >
-                <p className="font-medium">{s.name}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <p className="text-xs text-gray-500 font-mono">{s.id}</p>
-                  <span className="text-xs text-gray-500">
-                    · {s.participantCount} participant
-                    {s.participantCount !== 1 && "s"}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {/* Column 2: Questions */}
-        {selectedSession && (
-          <section className="lg:col-span-2">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xl font-semibold">
-                Questions — {selectedSession.name}
-              </h2>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400">
-                  👥 {selectedSession.participantCount} participant
-                  {selectedSession.participantCount !== 1 && "s"}
-                </span>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full ${
-                    selectedSession.status === "active"
-                      ? "bg-green-900 text-green-300"
-                      : selectedSession.status === "finished"
-                        ? "bg-gray-700 text-gray-400"
-                        : "bg-yellow-900 text-yellow-300"
-                  }`}
-                >
-                  {selectedSession.status}
-                </span>
-              </div>
-            </div>
-
-            {/* Publish controls */}
-            {unpublishedCount > 0 && (
-              <div className="flex gap-2 mb-4">
-                <button
-                  onClick={() => publishAction("next")}
-                  className="bg-indigo-600 hover:bg-indigo-500 rounded-lg px-4 py-2 text-sm font-semibold transition"
-                >
-                  📤 Publish Next Question
-                </button>
-                <button
-                  onClick={() => publishAction("all")}
-                  className="bg-indigo-800 hover:bg-indigo-700 rounded-lg px-4 py-2 text-sm font-semibold transition"
-                >
-                  📤 Publish All ({unpublishedCount})
-                </button>
+          <Panel title="Sessions" subtitle="Select a session to manage">
+            {sessions.length === 0 ? (
+              <p className="text-gray-500 text-sm italic">No sessions yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {sessions.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setSelected(s)}
+                    className={[
+                      "w-full text-left rounded-xl px-4 py-3 border transition",
+                      selected?.id === s.id
+                        ? "border-blue-500 bg-blue-600/10"
+                        : "border-gray-700 bg-gray-900/40 hover:border-gray-600",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-200 truncate max-w-[180px]">
+                          {s.title}
+                        </p>
+                        <p className="text-xs font-mono text-gray-500 mt-0.5">
+                          {s.code}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span
+                          className={[
+                            "text-xs font-semibold px-2 py-0.5 rounded-full",
+                            s.status === "active"
+                              ? "bg-green-800/50 text-green-300"
+                              : s.status === "completed"
+                              ? "bg-gray-700 text-gray-400"
+                              : "bg-yellow-800/40 text-yellow-300",
+                          ].join(" ")}
+                        >
+                          {s.status}
+                        </span>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          {s.participantCount} joined
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             )}
+          </Panel>
 
-            {/* Question list */}
-            <ul className="space-y-2 mb-6">
-              {questions.map((q) => (
-                <li
-                  key={q.id}
-                  className={`rounded-lg px-4 py-3 ${
-                    selectedSession.activeQuestionId === q.id
-                      ? "bg-green-900/30 border border-green-600"
-                      : q.published
-                        ? "bg-gray-800"
-                        : "bg-gray-800/50 border border-dashed border-gray-600"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs px-1.5 py-0.5 rounded ${
-                          q.type === "freetext"
-                            ? "bg-purple-900 text-purple-300"
-                            : "bg-blue-900 text-blue-300"
-                        }`}
-                      >
-                        {q.type === "freetext" ? "FREE TEXT" : "MCQ"}
-                      </span>
-                      <p className="font-medium">
-                        Q{q.order}: {q.text}
+          {/* System Resources */}
+          <SystemResourcePanel />
+
+          {/* Selected session controls */}
+          {selected && (
+            <>
+              <Panel title="Session Info" subtitle={selected.title} className="col-span-1">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between bg-gray-900/60 rounded-xl px-4 py-3">
+                    <div>
+                      <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-0.5">
+                        Meeting Code
                       </p>
-                      {!q.published && (
-                        <span className="text-xs text-yellow-500">
-                          (unpublished)
-                        </span>
-                      )}
+                      <p className="font-mono font-bold text-lg tracking-widest text-gray-200">
+                        {selected.code}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {!q.published && (
-                        <button
-                          onClick={() =>
-                            publishAction("next")
-                          }
-                          className="text-xs px-2 py-1 rounded-full bg-indigo-700 hover:bg-indigo-600 text-white transition"
-                        >
-                          Publish
-                        </button>
-                      )}
-                      <button
-                        onClick={() => activateQuestion(q.id)}
-                        className={`text-xs px-3 py-1 rounded-full font-semibold transition ${
-                          selectedSession.activeQuestionId === q.id
-                            ? "bg-green-600 text-white"
-                            : "bg-gray-700 hover:bg-blue-600 text-gray-300 hover:text-white"
-                        }`}
-                      >
-                        {selectedSession.activeQuestionId === q.id
-                          ? "● LIVE"
-                          : "Activate"}
-                      </button>
+                    <PrimaryButton variant="secondary" size="sm" onClick={handleCopyCode}>
+                      Copy
+                    </PrimaryButton>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-900/60 rounded-xl px-4 py-3 text-center">
+                      <p className="text-2xl font-bold text-teal-300">
+                        {selected.participantCount}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">Participants</p>
+                    </div>
+                    <div className="bg-gray-900/60 rounded-xl px-4 py-3 text-center">
+                      <p className="text-sm font-semibold text-gray-300 mt-1 capitalize">
+                        {selected.status}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">Status</p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {q.type === "freetext"
-                      ? "Open-ended text answer"
-                      : `Options: ${q.options.join(" | ")}`}
-                  </p>
-                </li>
-              ))}
-            </ul>
 
-            {/* Finish session button */}
-            {selectedSession.status !== "finished" && (
-              <button
-                onClick={() => activateQuestion(null)}
-                className="mb-6 bg-red-700 hover:bg-red-600 rounded-lg px-4 py-2 text-sm font-semibold transition"
-              >
-                Finish Session
-              </button>
-            )}
-
-            {/* Add question */}
-            <div className="bg-gray-800 rounded-xl p-4">
-              <h3 className="font-semibold mb-3">Add Question</h3>
-
-              {/* Question type toggle */}
-              <div className="flex gap-2 mb-3">
-                <button
-                  onClick={() => setQType("mcq")}
-                  className={`text-sm px-3 py-1 rounded-full font-semibold transition ${
-                    qType === "mcq"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700 text-gray-400 hover:text-white"
-                  }`}
-                >
-                  Multiple Choice
-                </button>
-                <button
-                  onClick={() => setQType("freetext")}
-                  className={`text-sm px-3 py-1 rounded-full font-semibold transition ${
-                    qType === "freetext"
-                      ? "bg-purple-600 text-white"
-                      : "bg-gray-700 text-gray-400 hover:text-white"
-                  }`}
-                >
-                  Free Text
-                </button>
-              </div>
-
-              <input
-                value={qText}
-                onChange={(e) => setQText(e.target.value)}
-                placeholder="Question text"
-                className="w-full rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-500"
-              />
-
-              {/* MCQ options */}
-              {qType === "mcq" && (
-                <>
-                  {qOptions.map((opt, idx) => (
-                    <div key={idx} className="flex gap-2 mb-2">
-                      <input
-                        value={opt}
-                        onChange={(e) => {
-                          const copy = [...qOptions];
-                          copy[idx] = e.target.value;
-                          setQOptions(copy);
-                        }}
-                        placeholder={`Option ${idx + 1}`}
-                        className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-                      />
-                      {idx >= 2 && (
-                        <button
-                          onClick={() =>
-                            setQOptions(qOptions.filter((_, i) => i !== idx))
-                          }
-                          className="text-red-400 hover:text-red-300 text-sm"
-                        >
-                          ✕
-                        </button>
-                      )}
+                  {selected.activeQuestionId && (
+                    <div className="bg-yellow-900/20 border border-yellow-700/30 rounded-xl px-4 py-2.5 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-yellow-400 font-semibold">
+                          Active question
+                        </p>
+                        <p className="text-xs text-gray-400 font-mono mt-0.5 truncate max-w-[160px]">
+                          {selected.activeQuestionId}
+                        </p>
+                      </div>
+                      <PrimaryButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleClearQuestion}
+                        disabled={actionLoading}
+                      >
+                        Clear
+                      </PrimaryButton>
                     </div>
-                  ))}
-                  <button
-                    onClick={() => setQOptions([...qOptions, ""])}
-                    className="text-sm text-blue-400 hover:text-blue-300 mb-2"
-                  >
-                    + Add option
-                  </button>
-                </>
-              )}
-
-              {qType === "freetext" && (
-                <p className="text-xs text-gray-500 mb-2">
-                  Participants will type their own answer.
-                </p>
-              )}
-
-              <div className="flex justify-end mt-2">
-                <button
-                  onClick={addQuestion}
-                  className="bg-green-600 hover:bg-green-500 rounded-lg px-4 py-2 text-sm font-semibold transition"
-                >
-                  Add Question
-                </button>
-              </div>
-            </div>
-
-            {/* Share links & QR Code */}
-            <div className="mt-6 bg-gray-800 rounded-xl p-4">
-              <h3 className="font-semibold mb-3">Share &amp; Join</h3>
-              <div className="flex flex-col sm:flex-row gap-4 items-center sm:items-start">
-                <QRCode
-                  value={
-                    typeof window !== "undefined"
-                      ? `${window.location.origin}/play/${selectedSession.id}`
-                      : `/play/${selectedSession.id}`
-                  }
-                  size={140}
-                />
-                <div className="flex-1 text-sm space-y-2">
-                  <p className="text-gray-400">
-                    <span className="font-medium text-gray-300">
-                      Player link:
-                    </span>{" "}
-                    <code className="text-blue-400">
-                      /play/{selectedSession.id}
-                    </code>
-                  </p>
-                  <p className="text-gray-400">
-                    <span className="font-medium text-gray-300">
-                      Dashboard:
-                    </span>{" "}
-                    <code className="text-blue-400">
-                      /dashboard/{selectedSession.id}
-                    </code>
-                  </p>
-                  <p className="text-gray-500 text-xs mt-2">
-                    Scan the QR code to join on a mobile device
-                  </p>
+                  )}
                 </div>
+              </Panel>
+
+              <Panel title="Actions" subtitle="Control the game session" className="col-span-1">
+                <div className="space-y-3">
+                  <PrimaryButton
+                    onClick={handleStart}
+                    disabled={actionLoading || selected.status !== "draft"}
+                    className="w-full"
+                  >
+                    ▶ Start Game
+                  </PrimaryButton>
+
+                  <PrimaryButton
+                    onClick={handleComplete}
+                    disabled={actionLoading || selected.status !== "active"}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    ✅ Complete Game
+                  </PrimaryButton>
+
+                  <PrimaryButton
+                    onClick={handleTriggerAnalysis}
+                    disabled={actionLoading || !selected}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    🔬 Trigger Analysis
+                  </PrimaryButton>
+
+                  <a
+                    href={`/presenter?sessionId=${selected.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📺 Open Presenter View
+                  </a>
+
+                  <a
+                    href={`/report?sessionId=${selected.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📊 View Report
+                  </a>
+
+                  <a
+                    href={`/join?code=${selected.code}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    🔗 Join Page (test)
+                  </a>
+
+                  <a
+                    href="/admin/checklist"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    ✔ Pre-Meeting Checklist
+                  </a>
+
+                  {!confirmReset ? (
+                    <PrimaryButton
+                      variant="danger"
+                      onClick={() => setConfirmReset(true)}
+                      disabled={actionLoading}
+                      className="w-full"
+                    >
+                      🔄 Reset Session
+                    </PrimaryButton>
+                  ) : (
+                    <div className="rounded-xl border border-red-700/50 bg-red-900/20 p-4 space-y-3">
+                      <p className="text-sm text-red-300 font-semibold text-center">
+                        Reset will delete all participants and responses. Are you sure?
+                      </p>
+                      <div className="flex gap-2">
+                        <PrimaryButton
+                          variant="secondary"
+                          onClick={() => setConfirmReset(false)}
+                          className="flex-1"
+                          size="sm"
+                        >
+                          Cancel
+                        </PrimaryButton>
+                        <PrimaryButton
+                          variant="danger"
+                          onClick={handleReset}
+                          disabled={actionLoading}
+                          className="flex-1"
+                          size="sm"
+                        >
+                          {actionLoading ? "Resetting…" : "Yes, Reset"}
+                        </PrimaryButton>
+                      </div>
+                    </div>
+                  )}
+
+                  <PrimaryButton
+                    variant="secondary"
+                    onClick={() => {
+                      refreshSelected(selected.id);
+                      loadRoundQuestions(selected.id, activeRoundTab);
+                    }}
+                    disabled={actionLoading}
+                    className="w-full"
+                  >
+                    ↻ Refresh
+                  </PrimaryButton>
+                </div>
+              </Panel>
+
+              {/* Export panel */}
+              <Panel title="Export" subtitle="Download session data" className="col-span-1">
+                <div className="space-y-3">
+                  <a
+                    href={`/api/sessions/${selected.id}/export?format=json`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📥 Export JSON
+                  </a>
+                  <a
+                    href={`/api/sessions/${selected.id}/export?format=csv`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📊 Export CSV
+                  </a>
+                  <a
+                    href={`/api/sessions/${selected.id}/export?format=markdown`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center rounded-xl font-semibold py-2.5 text-sm transition bg-gray-700 hover:bg-gray-600 text-gray-200"
+                  >
+                    📝 Export Markdown
+                  </a>
+                </div>
+              </Panel>
+
+              {/* Round Question Control — full-width row */}
+              <div className="col-span-1 md:col-span-2">
+                <Panel
+                  title="Round Question Control"
+                  subtitle="Activate and lock questions for each game round"
+                >
+                  {/* Round tabs */}
+                  <div className="flex gap-2 mb-5 flex-wrap">
+                    {ROUNDS.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => setActiveRoundTab(r.id)}
+                        className={[
+                          "px-3 py-1.5 rounded-lg text-xs font-semibold border transition",
+                          activeRoundTab === r.id
+                            ? "border-blue-500 bg-blue-600/20 text-white"
+                            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-white",
+                        ].join(" ")}
+                      >
+                        {r.name}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Question list */}
+                  <div className="mb-5 rounded-xl border border-gray-700 bg-gray-900/40 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-gray-200">
+                      Add Custom Question
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="Question title"
+                      value={customQuestionTitle}
+                      onChange={(e) => setCustomQuestionTitle(e.target.value)}
+                      className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600"
+                    />
+                    <textarea
+                      placeholder="Question prompt (optional)"
+                      value={customQuestionPrompt}
+                      onChange={(e) => setCustomQuestionPrompt(e.target.value)}
+                      className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600 min-h-[72px]"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestionType("single_choice")}
+                        className={[
+                          "px-3 py-1.5 rounded-lg text-xs font-semibold border transition",
+                          customQuestionType === "single_choice"
+                            ? "border-blue-500 bg-blue-600/20 text-white"
+                            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-white",
+                        ].join(" ")}
+                      >
+                        MCQ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestionType("free_text")}
+                        className={[
+                          "px-3 py-1.5 rounded-lg text-xs font-semibold border transition",
+                          customQuestionType === "free_text"
+                            ? "border-blue-500 bg-blue-600/20 text-white"
+                            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-white",
+                        ].join(" ")}
+                      >
+                        Free text
+                      </button>
+                    </div>
+                    {customQuestionType === "single_choice" && (
+                      <textarea
+                        placeholder={"MCQ options (one per line)\nOption 1\nOption 2"}
+                        value={customQuestionOptions}
+                        onChange={(e) => setCustomQuestionOptions(e.target.value)}
+                        className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600 min-h-[96px]"
+                      />
+                    )}
+                    <PrimaryButton
+                      size="sm"
+                      onClick={handleCreateCustomQuestion}
+                      disabled={actionLoading || !selected}
+                    >
+                      + Add to {ROUNDS.find((r) => r.id === activeRoundTab)?.name ?? "Round"}
+                    </PrimaryButton>
+                  </div>
+
+                  {questionLoading ? (
+                    <p className="text-xs text-gray-500 italic">Loading questions…</p>
+                  ) : roundQuestions.length === 0 ? (
+                    <p className="text-xs text-gray-500 italic">
+                      No questions found for this round.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {roundQuestions.map((q) => (
+                        <div
+                          key={q.id}
+                          className={[
+                            "rounded-xl border px-4 py-3 flex items-center justify-between gap-3",
+                            q.isActive
+                              ? "border-green-600/50 bg-green-900/10"
+                              : q.isLocked
+                              ? "border-gray-700 bg-gray-900/20 opacity-60"
+                              : "border-gray-700 bg-gray-900/40",
+                          ].join(" ")}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-gray-500 font-mono shrink-0">
+                                Q{q.order}
+                              </span>
+                              <p className="text-sm font-medium text-gray-200 truncate">
+                                {q.title}
+                              </p>
+                              {q.isActive && (
+                                <span className="bg-green-700/40 text-green-300 text-xs px-2 py-0.5 rounded-full font-semibold shrink-0">
+                                  LIVE
+                                </span>
+                              )}
+                              {q.isLocked && (
+                                <span className="bg-gray-700 text-gray-400 text-xs px-2 py-0.5 rounded-full font-semibold shrink-0">
+                                  LOCKED
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {questionTypeLabel[q.questionType] ?? q.questionType}
+                              {" · "}
+                              <span className="text-teal-400 font-semibold">
+                                {q.responseCount} response{q.responseCount !== 1 ? "s" : ""}
+                              </span>
+                            </p>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            {!q.isLocked ? (
+                              <>
+                                {!q.isActive ? (
+                                  <PrimaryButton
+                                    size="sm"
+                                    onClick={() => handleActivateQuestion(q.id)}
+                                    disabled={
+                                      actionLoading ||
+                                      selected.status !== "active"
+                                    }
+                                  >
+                                    Activate
+                                  </PrimaryButton>
+                                ) : (
+                                  <PrimaryButton
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={handleClearQuestion}
+                                    disabled={actionLoading}
+                                  >
+                                    Deactivate
+                                  </PrimaryButton>
+                                )}
+                                <PrimaryButton
+                                  size="sm"
+                                  variant="danger"
+                                  onClick={() => handleLockQuestion(q.id)}
+                                  disabled={actionLoading}
+                                >
+                                  🔒 Lock
+                                </PrimaryButton>
+                              </>
+                            ) : (
+                              <PrimaryButton
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => handleUnlockQuestion(q.id)}
+                                disabled={actionLoading}
+                              >
+                                🔓 Unlock
+                              </PrimaryButton>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Panel>
               </div>
-            </div>
-          </section>
-        )}
+            </>
+          )}
+        </div>
+
+        <p className="text-center text-xs text-gray-700 mt-10">
+          Phase 8 &amp; 9 — Complete game, trigger analysis, and export reports.
+        </p>
       </div>
-    </main>
+    </AppShell>
   );
 }
