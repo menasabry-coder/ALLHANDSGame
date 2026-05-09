@@ -16,6 +16,7 @@ import type { GameEvent } from "@/types/game";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+const HEARTBEAT_INTERVAL_MS = 25_000;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
       // proxies and load-balancers that close idle connections.
       heartbeat = setInterval(() => {
         safeEnqueue(": heartbeat\n\n");
-      }, 25_000);
+      }, HEARTBEAT_INTERVAL_MS);
 
       request.signal.addEventListener("abort", () => {
         cleanup();
