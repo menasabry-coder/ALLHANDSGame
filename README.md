@@ -27,6 +27,7 @@ cp .env.example .env
 ```
 
 Admin page access is password-protected using `ADMIN_PASSWORD` (default in `.env.example` is `hakonamatata`).
+AI analysis uses `OPENAI_ANALYSIS_MODEL` (default `gpt-4.1`) for deeper reasoning.
 
 ## Project Structure
 

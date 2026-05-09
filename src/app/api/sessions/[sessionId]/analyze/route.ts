@@ -149,6 +149,7 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   // ---- Step 3: Chat completion to produce the analysis ----
+  const analysisModel = process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
   const systemPrompt = `You are an expert data analyst for live polling sessions at engineering all-hands meetings.
 You will be given the questions (MCQ and free-text), their answer options/responses, and the voting results.
 Total participants in the session: ${participantCount}
@@ -205,7 +206,7 @@ Total votes: ${q.totalVotes}`;
 
   try {
     const chatRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: analysisModel,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
