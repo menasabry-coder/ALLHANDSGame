@@ -28,17 +28,17 @@ function applySqliteConcurrencyPragmas(): void {
   if (!databaseUrl.startsWith("file:")) return;
 
   globalForPrisma._sqlitePragmasApplied = true;
-  const ignorePragmaError = () => undefined;
+  const noop = () => undefined;
 
   void prisma
     .$executeRawUnsafe("PRAGMA journal_mode = WAL;")
-    .catch(ignorePragmaError);
+    .catch(noop);
   void prisma
     .$executeRawUnsafe("PRAGMA busy_timeout = 5000;")
-    .catch(ignorePragmaError);
+    .catch(noop);
   void prisma
     .$executeRawUnsafe("PRAGMA synchronous = NORMAL;")
-    .catch(ignorePragmaError);
+    .catch(noop);
 }
 
 applySqliteConcurrencyPragmas();
