@@ -289,16 +289,15 @@ export default function AdminPage() {
 
   // Lock a question
   async function handleLockQuestion(questionId: string) {
+    if (!selected) return;
     setActionLoading(true);
     try {
       const res = await fetch(`/api/questions/${questionId}/lock`, {
         method: "POST",
       });
       if (res.ok) {
-        if (selected) {
-          await refreshSelected(selected.id);
-          await loadRoundQuestions(selected.id, activeRoundTab);
-        }
+        await refreshSelected(selected.id);
+        await loadRoundQuestions(selected.id, activeRoundTab);
         showToast("Question locked — no more submissions.");
       } else {
         const d = await res.json();
@@ -312,16 +311,15 @@ export default function AdminPage() {
   }
 
   async function handleUnlockQuestion(questionId: string) {
+    if (!selected) return;
     setActionLoading(true);
     try {
       const res = await fetch(`/api/questions/${questionId}/unlock`, {
         method: "POST",
       });
       if (res.ok) {
-        if (selected) {
-          await refreshSelected(selected.id);
-          await loadRoundQuestions(selected.id, activeRoundTab);
-        }
+        await refreshSelected(selected.id);
+        await loadRoundQuestions(selected.id, activeRoundTab);
         showToast("Question unlocked.");
       } else {
         const d = await res.json();
