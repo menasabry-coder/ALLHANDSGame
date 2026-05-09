@@ -23,5 +23,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  // Protect all /admin/* pages and all /api/admin/* endpoints EXCEPT the
+  // login endpoint itself — intercepting /api/admin/login would redirect the
+  // unauthenticated POST before the cookie is set, causing a redirect loop.
+  matcher: ["/admin/:path*", "/api/admin/((?!login$).*)"],
 };
