@@ -11,7 +11,7 @@
  *   es.onmessage = (e) => { const event = JSON.parse(e.data); ... };
  */
 
-import { eventBus } from "@/lib/eventBus";
+import { eventBus, gameEventChannel } from "@/lib/eventBus";
 import type { GameEvent } from "@/types/game";
 
 export const dynamic = "force-dynamic";
@@ -20,46 +20,67 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const sessionId = url.searchParams.get("sessionId");
+  const channel = sessionId ? gameEventChannel(sessionId) : "game:event";
 
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
-      // Send a comment immediately to flush headers and confirm connection
-      controller.enqueue(encoder.encode(": connected\n\n"));
+      let closed = false;
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      let listener: ((event: GameEvent) => void) | null = null;
 
-      const listener = (event: GameEvent) => {
-        // If a sessionId filter is provided, only forward events for that session
-        if (sessionId && event.sessionId !== sessionId) return;
-        try {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-          );
-        } catch {
-          // Client disconnected — will be cleaned up by the abort handler
-        }
-      };
-
-      eventBus.on("game:event", listener);
-
-      // Send a heartbeat every 25 seconds to keep the connection alive through
-      // proxies and load-balancers that close idle connections.
-      const heartbeat = setInterval(() => {
-        try {
-          controller.enqueue(encoder.encode(": heartbeat\n\n"));
-        } catch {
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (heartbeat) {
           clearInterval(heartbeat);
+          heartbeat = null;
         }
-      }, 25_000);
-
-      request.signal.addEventListener("abort", () => {
-        clearInterval(heartbeat);
-        eventBus.off("game:event", listener);
+        if (listener) {
+          eventBus.off(channel, listener);
+          listener = null;
+        }
         try {
           controller.close();
         } catch {
           // already closed
         }
+      };
+
+      const safeEnqueue = (data: string): boolean => {
+        if (closed) return false;
+        const desired = controller.desiredSize;
+        if (desired !== null && desired <= 0) {
+          cleanup();
+          return false;
+        }
+        try {
+          controller.enqueue(encoder.encode(data));
+          return true;
+        } catch {
+          cleanup();
+          return false;
+        }
+      };
+
+      // Send a comment immediately to flush headers and confirm connection
+      safeEnqueue(": connected\n\n");
+
+      listener = (event: GameEvent) => {
+        safeEnqueue(`data: ${JSON.stringify(event)}\n\n`);
+      };
+
+      eventBus.on(channel, listener);
+
+      // Send a heartbeat every 25 seconds to keep the connection alive through
+      // proxies and load-balancers that close idle connections.
+      heartbeat = setInterval(() => {
+        safeEnqueue(": heartbeat\n\n");
+      }, 25_000);
+
+      request.signal.addEventListener("abort", () => {
+        cleanup();
       });
     },
   });

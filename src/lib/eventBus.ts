@@ -14,9 +14,26 @@ const globalForEvents = global as typeof globalThis & {
   _eventBus?: EventEmitter;
 };
 
+const DEFAULT_MAX_SSE_LISTENERS = 1_000;
+
+function parseMaxSseListeners(rawValue: string | undefined): number {
+  if (!rawValue) return DEFAULT_MAX_SSE_LISTENERS;
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_MAX_SSE_LISTENERS;
+  }
+  return parsed;
+}
+
+export function gameEventChannel(sessionId: string): string {
+  return `game:event:${sessionId}`;
+}
+
 if (!globalForEvents._eventBus) {
   const bus = new EventEmitter();
-  bus.setMaxListeners(200); // one per connected SSE client
+  bus.setMaxListeners(
+    parseMaxSseListeners(process.env.SSE_MAX_LISTENERS)
+  );
   globalForEvents._eventBus = bus;
 }
 
@@ -34,5 +51,6 @@ export function emitGameEvent<T = unknown>(
     payload,
     timestamp: new Date().toISOString(),
   };
+  eventBus.emit(gameEventChannel(sessionId), event);
   eventBus.emit("game:event", event);
 }
