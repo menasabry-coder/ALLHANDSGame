@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MetricCard from "@/components/MetricCard";
 import Panel from "@/components/Panel";
 import QRCode from "@/components/QRCode";
+import AIInsights from "@/components/AIInsights";
 import { GAME_NAME, GAME_SUBTITLE, ROUNDS } from "@/config/gameConfig";
 import type { GameEvent, GameSessionDto } from "@/types/game";
 import type { CumulativePulseAnalysis, CurrentQuestionAnalysis } from "@/types/analysis";
@@ -505,6 +506,89 @@ function CumulativePulsePanel({ pulse }: { pulse: CumulativePulseAnalysis }) {
 }
 
 // ---------------------------------------------------------------------------
+// AI Chat panel
+// ---------------------------------------------------------------------------
+
+function AIChatPanel({ sessionId }: { sessionId: string }) {
+  const [prompt, setPrompt] = useState("");
+  const [response, setResponse] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const send = async () => {
+    const q = prompt.trim();
+    if (!q) return;
+    setLoading(true);
+    setError(null);
+    setResponse(null);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Request failed");
+      } else {
+        setResponse(data.response ?? "");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not connect");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-gray-800/70 rounded-2xl p-6 border border-cyan-700/50">
+      <div className="flex items-center gap-3 mb-4">
+        <span className="text-2xl">💬</span>
+        <h2 className="text-xl font-bold">Ask AI About This Session</h2>
+      </div>
+      <p className="text-gray-400 text-sm mb-4">
+        Ask anything about the team&apos;s responses, patterns, or insights from this session.
+      </p>
+      <div className="flex gap-2 mb-4">
+        <input
+          type="text"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !loading && send()}
+          placeholder="e.g. What are the biggest AI adoption concerns?"
+          className="flex-1 rounded-xl bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-cyan-500 text-white placeholder-gray-600"
+          disabled={loading}
+        />
+        <button
+          onClick={send}
+          disabled={loading || !prompt.trim()}
+          className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-5 py-2.5 text-sm font-semibold transition"
+        >
+          {loading ? "…" : "Ask"}
+        </button>
+      </div>
+      {error && (
+        <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 mb-3">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+      {loading && (
+        <div className="flex items-center gap-3 py-4">
+          <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <p className="text-gray-400 text-sm">Thinking…</p>
+        </div>
+      )}
+      {response && (
+        <div className="bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+          <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wide mb-2">AI Response</p>
+          <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{response}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main dashboard
 // ---------------------------------------------------------------------------
 
@@ -884,6 +968,12 @@ export default function PresenterDashboard({
 
       {/* Cumulative pulse analysis */}
       {cumulativePulse && <CumulativePulsePanel pulse={cumulativePulse} />}
+
+      {/* AI infographic analysis */}
+      <AIInsights sessionId={sessionId} />
+
+      {/* AI chat window */}
+      <AIChatPanel sessionId={sessionId} />
 
       {/* Footer hint */}
       <p className="text-center text-xs text-gray-700 mt-auto">
