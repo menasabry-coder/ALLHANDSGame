@@ -23,8 +23,15 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Protect all /admin/* pages and all /api/admin/* endpoints EXCEPT the
-  // login endpoint itself — intercepting /api/admin/login would redirect the
-  // unauthenticated POST before the cookie is set, causing a redirect loop.
-  matcher: ["/admin/:path*", "/api/admin/((?!login$).*)"],
+  // Protect the landing page, admin panel, presenter dashboard, and reports.
+  // We exclude specific participant-facing routes like /join and /participant
+  // so the audience can still enter the game.
+  matcher: [
+    "/",
+    "/admin/:path*",
+    "/presenter/:path*",
+    "/report/:path*",
+    "/api/admin/((?!login$).*)",
+    "/api/sessions",
+  ],
 };

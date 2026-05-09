@@ -11,7 +11,7 @@ export default async function JoinPage({
   const initialCode = params.code ?? "";
 
   return (
-    <AppShell>
+    <AppShell hideNav>
       <Suspense
         fallback={
           <div className="flex items-center justify-center flex-1">

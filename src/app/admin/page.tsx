@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import Panel from "@/components/Panel";
 import PrimaryButton from "@/components/PrimaryButton";
 import RoleBadge from "@/components/RoleBadge";
+import SystemResourcePanel from "@/components/SystemResourcePanel";
 import { ROUNDS } from "@/config/gameConfig";
 import type { GameSessionDto } from "@/types/game";
 
@@ -497,6 +498,9 @@ export default function AdminPage() {
               </div>
             )}
           </Panel>
+
+          {/* System Resources */}
+          <SystemResourcePanel />
 
           {/* Selected session controls */}
           {selected && (

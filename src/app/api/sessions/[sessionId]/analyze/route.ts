@@ -215,7 +215,14 @@ export async function POST(_request: Request, { params }: Params) {
   }
 
   // ---- Step 3: Chat completion to produce the analysis ----
-  const analysisModel = process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
+  const body = (await _request.json().catch(() => ({}))) as { modelType?: string };
+  const modelType = body.modelType || "standard";
+  
+  const isReasoning = modelType === "reasoning";
+  const analysisModel = isReasoning 
+    ? (process.env.OPENAI_REASONING_MODEL || "o1-mini")
+    : (process.env.OPENAI_ANALYSIS_MODEL || "gpt-4o");
+
   const systemPrompt = `You are an expert data analyst for live polling sessions at engineering all-hands meetings.
 You will be given the questions (MCQ and free-text), their answer options/responses, and the voting results.
 Total participants in the session: ${participantCount}
@@ -273,12 +280,16 @@ Total votes: ${q.totalVotes}`;
   try {
     const chatRes = await openai.chat.completions.create({
       model: analysisModel,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 3000,
+      messages: isReasoning 
+        ? [
+            { role: "developer", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ]
+        : [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+      ...(isReasoning ? { max_completion_tokens: 3000 } : { temperature: 0.7, max_tokens: 3000 }),
     });
 
     const raw = chatRes.choices[0]?.message?.content?.trim() ?? "";
