@@ -295,7 +295,10 @@ export default function AdminPage() {
         method: "POST",
       });
       if (res.ok) {
-        if (selected) await loadRoundQuestions(selected.id, activeRoundTab);
+        if (selected) {
+          await refreshSelected(selected.id);
+          await loadRoundQuestions(selected.id, activeRoundTab);
+        }
         showToast("Question locked — no more submissions.");
       } else {
         const d = await res.json();
@@ -315,7 +318,10 @@ export default function AdminPage() {
         method: "POST",
       });
       if (res.ok) {
-        if (selected) await loadRoundQuestions(selected.id, activeRoundTab);
+        if (selected) {
+          await refreshSelected(selected.id);
+          await loadRoundQuestions(selected.id, activeRoundTab);
+        }
         showToast("Question unlocked.");
       } else {
         const d = await res.json();

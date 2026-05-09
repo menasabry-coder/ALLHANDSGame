@@ -61,6 +61,14 @@ export async function POST(_req: Request, { params }: Params) {
     firstResponse?.sessionId ?? sessionRecord?.id ?? "unknown";
 
   if (sessionId !== "unknown") {
+    // Clear session.activeQuestionId if this question was the active one.
+    // This keeps the session and question states consistent so that unlock
+    // followed by re-activation works cleanly.
+    await prisma.gameSession.updateMany({
+      where: { id: sessionId, activeQuestionId: questionId },
+      data: { activeQuestionId: null },
+    });
+
     // Emit locked event immediately so participants see lock state
     emitGameEvent("question:locked", sessionId, { questionId });
 
