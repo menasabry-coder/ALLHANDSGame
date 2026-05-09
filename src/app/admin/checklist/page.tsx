@@ -1,137 +1,106 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import Panel from "@/components/Panel";
 import PrimaryButton from "@/components/PrimaryButton";
 
-const CHECKLIST_KEY = "ai-arena-admin-checklist";
+type CheckStatus = "pass" | "warn" | "fail";
 
-const ITEMS = [
-  { id: "db", label: "Database connected" },
-  { id: "openai", label: "OpenAI API key configured" },
-  { id: "realtime", label: "Realtime connection working" },
-  { id: "presenter", label: "Presenter screen tested" },
-  { id: "mobile", label: "Participant mobile tested" },
-  { id: "qr", label: "QR code tested" },
-  { id: "seed", label: "Demo session seeded" },
-  { id: "sim400", label: "400-participant simulation tested" },
-  { id: "export", label: "Export tested" },
-  { id: "fallback", label: "Fallback summary tested if OpenAI fails" },
-  { id: "internet", label: "Internet connection checked" },
-  { id: "backup", label: "Backup local mode available" },
-];
+interface CheckItem {
+  id: string;
+  label: string;
+  status: CheckStatus;
+  details: string;
+}
+
+interface ChecklistResponse {
+  summary: CheckStatus;
+  generatedAt: string;
+  checks: CheckItem[];
+}
+
+const statusClasses: Record<CheckStatus, string> = {
+  pass: "bg-green-900/20 border-green-700/40 text-green-300",
+  warn: "bg-yellow-900/20 border-yellow-700/40 text-yellow-300",
+  fail: "bg-red-900/20 border-red-700/40 text-red-300",
+};
+
+const summaryLabel: Record<CheckStatus, string> = {
+  pass: "Ready",
+  warn: "Needs Attention",
+  fail: "Blocked",
+};
 
 export default function ChecklistPage() {
-  const [checked, setChecked] = useState<Record<string, boolean>>(() => {
-    try {
-      if (typeof window === "undefined") return {};
-      const stored = localStorage.getItem(CHECKLIST_KEY);
-      return stored ? (JSON.parse(stored) as Record<string, boolean>) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [data, setData] = useState<ChecklistResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  function toggle(id: string) {
-    setChecked((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      try {
-        localStorage.setItem(CHECKLIST_KEY, JSON.stringify(next));
-      } catch {
-        // ignore
+  const runChecks = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/checklist", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error("Failed to run checks");
       }
-      return next;
-    });
-  }
-
-  function resetAll() {
-    setChecked({});
-    try {
-      localStorage.removeItem(CHECKLIST_KEY);
+      const json = (await res.json()) as ChecklistResponse;
+      setData(json);
     } catch {
-      // ignore
+      setError("Could not run automated checks. Try again.");
+    } finally {
+      setLoading(false);
     }
-  }
+  }, []);
 
-  const checkedCount = ITEMS.filter((i) => checked[i.id]).length;
-  const total = ITEMS.length;
-  const progressPct = Math.round((checkedCount / total) * 100);
+  useEffect(() => {
+    runChecks();
+  }, [runChecks]);
 
   return (
     <AppShell>
-      <div className="p-6 max-w-2xl mx-auto w-full">
-        <div className="flex items-center justify-between mb-8">
+      <div className="p-6 max-w-3xl mx-auto w-full">
+        <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold">Pre-Meeting Checklist</h1>
             <p className="text-gray-500 text-sm mt-1">
-              Check off items before the all-hands session
+              Automated environment checks run for you.
             </p>
           </div>
-          <a
-            href="/admin"
-            className="text-sm text-blue-400 hover:text-blue-300 underline"
-          >
+          <a href="/admin" className="text-sm text-blue-400 hover:text-blue-300 underline">
             ← Back to Admin
           </a>
         </div>
 
         <Panel
-          title={`Progress: ${checkedCount}/${total}`}
-          subtitle={`${progressPct}% complete`}
+          title="System Readiness"
+          subtitle={
+            data
+              ? `${summaryLabel[data.summary]} · Last run ${new Date(data.generatedAt).toLocaleString()}`
+              : "Running checks…"
+          }
         >
-          {/* Progress bar */}
-          <div className="h-3 rounded-full bg-gray-800 overflow-hidden mb-6">
-            <div
-              className="h-full rounded-full bg-teal-500 transition-all duration-500"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-
           <div className="space-y-3">
-            {ITEMS.map((item) => (
-              <label
+            {data?.checks.map((item) => (
+              <div
                 key={item.id}
-                className="flex items-center gap-3 cursor-pointer group"
+                className={`rounded-xl border px-4 py-3 ${statusClasses[item.status]}`}
               >
-                <input
-                  type="checkbox"
-                  checked={!!checked[item.id]}
-                  onChange={() => toggle(item.id)}
-                  className="w-4 h-4 rounded accent-teal-500 cursor-pointer"
-                />
-                <span
-                  className={[
-                    "text-sm transition",
-                    checked[item.id]
-                      ? "text-teal-300 line-through"
-                      : "text-gray-200 group-hover:text-white",
-                  ].join(" ")}
-                >
-                  {item.label}
-                </span>
-              </label>
+                <p className="text-sm font-semibold">{item.label}</p>
+                <p className="text-xs mt-1 opacity-90">{item.details}</p>
+              </div>
             ))}
           </div>
 
-          <div className="mt-6 pt-4 border-t border-gray-700">
-            <PrimaryButton variant="danger" size="sm" onClick={resetAll}>
-              🔄 Reset All
+          {error ? <p className="text-red-400 text-xs mt-4">{error}</p> : null}
+
+          <div className="mt-5">
+            <PrimaryButton size="sm" onClick={runChecks} disabled={loading}>
+              {loading ? "Running checks…" : "Run Checks Again"}
             </PrimaryButton>
           </div>
         </Panel>
-
-        {checkedCount === total && (
-          <div
-            className="mt-4 rounded-xl border border-teal-700 bg-teal-900/20 px-5 py-4 text-center"
-            role="status"
-            aria-live="polite"
-          >
-            <p className="text-teal-300 font-semibold text-lg">
-              ✅ All items checked — you&apos;re ready!
-            </p>
-          </div>
-        )}
       </div>
     </AppShell>
   );

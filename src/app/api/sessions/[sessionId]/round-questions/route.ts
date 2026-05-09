@@ -5,6 +5,14 @@ interface Params {
   params: Promise<{ sessionId: string }>;
 }
 
+interface NewQuestionBody {
+  roundId?: string;
+  title?: string;
+  prompt?: string;
+  questionType?: "single_choice" | "free_text";
+  options?: string[];
+}
+
 /**
  * GET /api/sessions/[sessionId]/round-questions?roundId=stock_market
  *
@@ -156,4 +164,104 @@ export async function GET(request: Request, { params }: Params) {
     roundId: roundId ?? null,
     questions: result,
   });
+}
+
+/**
+ * POST /api/sessions/[sessionId]/round-questions
+ *
+ * Adds a custom question to a round.
+ * Body:
+ * {
+ *   roundId: string,
+ *   title: string,
+ *   prompt?: string,
+ *   questionType: "single_choice" | "free_text",
+ *   options?: string[] // required for single_choice (>=2)
+ * }
+ */
+export async function POST(request: Request, { params }: Params) {
+  const { sessionId } = await params;
+
+  const session = await prisma.gameSession.findUnique({
+    where: { id: sessionId },
+    select: { id: true },
+  });
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
+
+  const body = (await request.json()) as NewQuestionBody;
+  const roundId = body.roundId?.trim() ?? "";
+  const title = body.title?.trim() ?? "";
+  const prompt = body.prompt?.trim() || title;
+  const questionType = body.questionType ?? "single_choice";
+  const options = (body.options ?? []).map((o) => o.trim()).filter(Boolean);
+
+  if (!roundId) {
+    return NextResponse.json({ error: "roundId is required" }, { status: 400 });
+  }
+  if (!title) {
+    return NextResponse.json({ error: "title is required" }, { status: 400 });
+  }
+  if (!["single_choice", "free_text"].includes(questionType)) {
+    return NextResponse.json(
+      { error: "questionType must be single_choice or free_text" },
+      { status: 400 }
+    );
+  }
+  if (questionType === "single_choice" && options.length < 2) {
+    return NextResponse.json(
+      { error: "MCQ requires at least 2 options" },
+      { status: 400 }
+    );
+  }
+
+  const existing = await prisma.question.findMany({
+    where: { roundId },
+    select: { order: true },
+    orderBy: { order: "desc" },
+    take: 1,
+  });
+  const nextOrder = (existing[0]?.order ?? 0) + 1;
+  const questionId = `custom_${roundId}_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  const question = await prisma.question.create({
+    data: {
+      id: questionId,
+      roundId,
+      order: nextOrder,
+      title,
+      prompt,
+      questionType,
+      options:
+        questionType === "single_choice"
+          ? {
+              create: options.map((label, index) => ({
+                id: `${questionId}_opt_${index + 1}`,
+                label,
+                order: index + 1,
+              })),
+            }
+          : undefined,
+    },
+    include: { options: { orderBy: { order: "asc" } } },
+  });
+
+  return NextResponse.json(
+    {
+      id: question.id,
+      roundId: question.roundId,
+      order: question.order,
+      title: question.title,
+      prompt: question.prompt,
+      questionType: question.questionType,
+      isActive: question.isActive,
+      isLocked: question.isLocked,
+      options: question.options,
+      responseCount: 0,
+    },
+    { status: 201 }
+  );
 }

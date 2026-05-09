@@ -65,6 +65,11 @@ interface FormState {
   teamAlias: string;
 }
 
+interface ExistingParticipantSession {
+  sessionId: string;
+  participantId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -141,37 +146,61 @@ export default function JoinFlow({ initialCode }: { initialCode: string }) {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [existingSession, setExistingSession] =
+    useState<ExistingParticipantSession | null>(null);
+  const [checkingExisting, setCheckingExisting] = useState(true);
 
-  // On mount: check localStorage for an existing participant session
+  // On mount: check localStorage for an existing participant session.
+  // Do not auto-redirect; allow the user to intentionally switch sessions.
   useEffect(() => {
+    let cancelled = false;
     try {
       const stored = localStorage.getItem(LS_KEY);
-      if (!stored) return;
+      if (!stored) {
+        setCheckingExisting(false);
+        return;
+      }
       const { sessionId, participantId } = JSON.parse(stored) as {
         sessionId: string;
         participantId: string;
       };
       if (sessionId && participantId) {
-        // Verify session still exists before redirecting
         fetch(`/api/sessions/${sessionId}`)
           .then((r) => (r.ok ? r.json() : null))
           .then((s) => {
+            if (cancelled) return;
             if (s) {
-              router.replace(
-                `/participant?sessionId=${sessionId}&participantId=${participantId}`
-              );
+              setExistingSession({ sessionId, participantId });
             } else {
               localStorage.removeItem(LS_KEY);
             }
+            setCheckingExisting(false);
           })
           .catch(() => {
-            /* ignore network error */
+            if (!cancelled) setCheckingExisting(false);
           });
+      } else {
+        setCheckingExisting(false);
       }
     } catch {
-      // corrupted storage — ignore
+      setCheckingExisting(false);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handleContinueExisting() {
+    if (!existingSession) return;
+    router.replace(
+      `/participant?sessionId=${existingSession.sessionId}&participantId=${existingSession.participantId}`
+    );
+  }
+
+  function handleJoinDifferentSession() {
+    localStorage.removeItem(LS_KEY);
+    setExistingSession(null);
+  }
 
   // Step 0 — code lookup
   async function handleCodeNext() {
@@ -256,6 +285,37 @@ export default function JoinFlow({ initialCode }: { initialCode: string }) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 p-6">
         <div className="w-full max-w-sm">
+          {checkingExisting ? (
+            <Panel className="mb-4">
+              <p className="text-sm text-gray-400">Checking existing session…</p>
+            </Panel>
+          ) : null}
+
+          {existingSession ? (
+            <Panel className="mb-4">
+              <p className="text-sm text-gray-300 mb-3">
+                You already joined a session with this device.
+              </p>
+              <div className="flex gap-2">
+                <PrimaryButton
+                  size="sm"
+                  className="flex-1"
+                  onClick={handleContinueExisting}
+                >
+                  Resume
+                </PrimaryButton>
+                <PrimaryButton
+                  size="sm"
+                  className="flex-1"
+                  variant="secondary"
+                  onClick={handleJoinDifferentSession}
+                >
+                  Join Another
+                </PrimaryButton>
+              </div>
+            </Panel>
+          ) : null}
+
           <h1 className="text-2xl font-bold mb-1">Join AI Arena</h1>
           <p className="text-gray-400 text-sm mb-6">
             Enter your meeting code to participate.

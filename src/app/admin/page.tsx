@@ -41,6 +41,14 @@ export default function AdminPage() {
   const [activeRoundTab, setActiveRoundTab] = useState<string>(ROUNDS[0].id);
   const [roundQuestions, setRoundQuestions] = useState<QuestionRow[]>([]);
   const [questionLoading, setQuestionLoading] = useState(false);
+  const [customQuestionTitle, setCustomQuestionTitle] = useState("");
+  const [customQuestionPrompt, setCustomQuestionPrompt] = useState("");
+  const [customQuestionType, setCustomQuestionType] = useState<
+    "single_choice" | "free_text"
+  >("single_choice");
+  const [customQuestionOptions, setCustomQuestionOptions] = useState(
+    "Option 1\nOption 2"
+  );
 
   const loadSessions = useCallback(async () => {
     try {
@@ -300,6 +308,86 @@ export default function AdminPage() {
     }
   }
 
+  async function handleUnlockQuestion(questionId: string) {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/questions/${questionId}/unlock`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        if (selected) await loadRoundQuestions(selected.id, activeRoundTab);
+        showToast("Question unlocked.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to unlock question.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleCreateCustomQuestion() {
+    if (!selected) return;
+
+    const title = customQuestionTitle.trim();
+    const prompt = customQuestionPrompt.trim();
+    const options = customQuestionOptions
+      .split("\n")
+      .map((o) => o.trim())
+      .filter(Boolean);
+
+    if (!title) {
+      setError("Enter a custom question title.");
+      return;
+    }
+    if (customQuestionType === "single_choice" && options.length < 2) {
+      setError("MCQ requires at least 2 options (one per line).");
+      return;
+    }
+
+    setActionLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/sessions/${selected.id}/round-questions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roundId: activeRoundTab,
+          title,
+          prompt: prompt || title,
+          questionType: customQuestionType,
+          options,
+        }),
+      });
+      if (res.ok) {
+        setCustomQuestionTitle("");
+        setCustomQuestionPrompt("");
+        setCustomQuestionType("single_choice");
+        setCustomQuestionOptions("Option 1\nOption 2");
+        await loadRoundQuestions(selected.id, activeRoundTab);
+        showToast("Custom question added.");
+      } else {
+        const d = await res.json();
+        setError(d.error ?? "Failed to add custom question.");
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/admin/logout", { method: "POST" });
+      window.location.href = "/admin/login";
+    } catch {
+      setError("Could not log out.");
+    }
+  }
+
   const questionTypeLabel: Record<string, string> = {
     single_choice: "Single choice",
     multi_select: "Multi-select",
@@ -314,7 +402,12 @@ export default function AdminPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold">Admin Control</h1>
-          <RoleBadge role="Admin" />
+          <div className="flex items-center gap-3">
+            <RoleBadge role="Admin" />
+            <PrimaryButton size="sm" variant="secondary" onClick={handleLogout}>
+              Log out
+            </PrimaryButton>
+          </div>
         </div>
 
         {/* Toast */}
@@ -625,6 +718,66 @@ export default function AdminPage() {
                   </div>
 
                   {/* Question list */}
+                  <div className="mb-5 rounded-xl border border-gray-700 bg-gray-900/40 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-gray-200">
+                      Add Custom Question
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="Question title"
+                      value={customQuestionTitle}
+                      onChange={(e) => setCustomQuestionTitle(e.target.value)}
+                      className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600"
+                    />
+                    <textarea
+                      placeholder="Question prompt (optional)"
+                      value={customQuestionPrompt}
+                      onChange={(e) => setCustomQuestionPrompt(e.target.value)}
+                      className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600 min-h-[72px]"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestionType("single_choice")}
+                        className={[
+                          "px-3 py-1.5 rounded-lg text-xs font-semibold border transition",
+                          customQuestionType === "single_choice"
+                            ? "border-blue-500 bg-blue-600/20 text-white"
+                            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-white",
+                        ].join(" ")}
+                      >
+                        MCQ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestionType("free_text")}
+                        className={[
+                          "px-3 py-1.5 rounded-lg text-xs font-semibold border transition",
+                          customQuestionType === "free_text"
+                            ? "border-blue-500 bg-blue-600/20 text-white"
+                            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-white",
+                        ].join(" ")}
+                      >
+                        Free text
+                      </button>
+                    </div>
+                    {customQuestionType === "single_choice" && (
+                      <textarea
+                        placeholder={"MCQ options (one per line)\nOption 1\nOption 2"}
+                        value={customQuestionOptions}
+                        onChange={(e) => setCustomQuestionOptions(e.target.value)}
+                        className="w-full rounded-lg bg-gray-900 border border-gray-700 px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600 min-h-[96px]"
+                      />
+                    )}
+                    <PrimaryButton
+                      size="sm"
+                      onClick={handleCreateCustomQuestion}
+                      disabled={actionLoading || !selected}
+                    >
+                      + Add to {ROUNDS.find((r) => r.id === activeRoundTab)?.name ?? "Round"}
+                    </PrimaryButton>
+                  </div>
+
                   {questionLoading ? (
                     <p className="text-xs text-gray-500 italic">Loading questions…</p>
                   ) : roundQuestions.length === 0 ? (
@@ -673,7 +826,7 @@ export default function AdminPage() {
                             </p>
                           </div>
                           <div className="flex gap-2 shrink-0">
-                            {!q.isLocked && (
+                            {!q.isLocked ? (
                               <>
                                 {!q.isActive ? (
                                   <PrimaryButton
@@ -705,6 +858,15 @@ export default function AdminPage() {
                                   🔒 Lock
                                 </PrimaryButton>
                               </>
+                            ) : (
+                              <PrimaryButton
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => handleUnlockQuestion(q.id)}
+                                disabled={actionLoading}
+                              >
+                                🔓 Unlock
+                              </PrimaryButton>
                             )}
                           </div>
                         </div>

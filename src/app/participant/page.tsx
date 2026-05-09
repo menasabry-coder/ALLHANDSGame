@@ -9,7 +9,7 @@ export default async function ParticipantPage({
 }) {
   const params = await searchParams;
   return (
-    <AppShell>
+    <AppShell hideNav>
       <Suspense
         fallback={
           <div className="flex items-center justify-center flex-1">

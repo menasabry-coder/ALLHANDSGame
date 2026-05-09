@@ -26,6 +26,8 @@ Create a local environment file before running database commands:
 cp .env.example .env
 ```
 
+Admin page access is password-protected using `ADMIN_PASSWORD` (default in `.env.example` is `hakonamatata`).
+
 ## Project Structure
 
 ```
