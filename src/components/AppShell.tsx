@@ -23,12 +23,6 @@ export default function AppShell({ children, hideNav = false }: AppShellProps) {
             <Link href="/join" className="hover:text-white transition">
               Join
             </Link>
-            <Link href="/presenter" className="hover:text-white transition">
-              Presenter
-            </Link>
-            <Link href="/admin" className="hover:text-white transition">
-              Admin
-            </Link>
           </nav>
         </header>
       )}
