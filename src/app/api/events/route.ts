@@ -52,6 +52,8 @@ export async function GET(request: Request) {
       const safeEnqueue = (data: string): boolean => {
         if (closed) return false;
         const desired = controller.desiredSize;
+        // Backpressure guard: if queue is full, close this stream so EventSource
+        // reconnects instead of letting buffered events accumulate in memory.
         if (desired !== null && desired <= 0) {
           cleanup();
           return false;
